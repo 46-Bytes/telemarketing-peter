@@ -4,6 +4,7 @@ from pymongo.errors import DuplicateKeyError
 from datetime import datetime
 from bson import ObjectId
 from pydantic import BaseModel
+from utils.timezone import get_brisbane_now
 
 def create_new_campaign(campaign_name: str, users: str, campaignDate: str = None, description: str = None, has_ebook: bool = False, campaignTime: str = None):
     try:
@@ -16,8 +17,8 @@ def create_new_campaign(campaign_name: str, users: str, campaignDate: str = None
             "users": users,
             "campaignDate": campaignDate,
             "campaignTime": campaignTime,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": get_brisbane_now().isoformat(),
+            "updated_at": get_brisbane_now().isoformat(),
             "maxRetry": 3,
             "isVisible": True,
             "has_ebook": has_ebook
@@ -107,7 +108,7 @@ def update_campaign_ebook(campaign_id: str, ebook_path: str):
                 "$set": {
                     "has_ebook": True,
                     "ebook_path": ebook_path,
-                    "updated_at": datetime.utcnow().isoformat()
+                    "updated_at": get_brisbane_now().isoformat()
                 }
             }
         )
@@ -347,7 +348,7 @@ def get_campaign_analytics_list(campaign_id: str):
         # Base match stage for this campaign
         base_match = {"campaignId": campaign_id}
         
-        # 1. Get total number of calls
+        # 1. Get total number of calls (Include all the calls regardless of status)
         total_calls_pipeline = [
             {"$match": base_match},
             {"$unwind": {"path": "$calls", "preserveNullAndEmptyArrays": False}},
@@ -432,7 +433,7 @@ def update_campaign_settings(campaign_id: str, campaign_update: CampaignUpdate):
             "campaignDate": campaign_update.campaignDate,
             "campaignTime": campaign_update.campaignTime,
             "maxRetry": campaign_update.maxRetry,
-            "updated_at": datetime.utcnow().isoformat()
+            "updated_at": get_brisbane_now().isoformat()
         }
         
         print("Update data:", update_data)
@@ -457,7 +458,7 @@ def update_campaign_settings(campaign_id: str, campaign_update: CampaignUpdate):
                 {"$set": {
                     "scheduledCallDate": update_data["campaignDate"],
                     "scheduledCallTime": update_data["campaignTime"],
-                    "updated_at": datetime.utcnow().isoformat()
+                    "updated_at": get_brisbane_now().isoformat()
                 }}
             )
             

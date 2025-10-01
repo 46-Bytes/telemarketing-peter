@@ -4,7 +4,8 @@ from typing import List, Dict, Any
 from datetime import datetime, timedelta
 import logging
 from models.token_model import TokenStore
-from bson.objectid import ObjectId
+from bson import ObjectId
+from utils.timezone import get_brisbane_now
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: str, campaign_name: str, campaign_id: str = None,scheduled_call_time: str = None):
     prospects_collection = get_prospects_collection()
-    current_time = datetime.utcnow().isoformat() + "Z"
+    current_time = get_brisbane_now().isoformat() + "Z"
     
     # Set defaults for empty values
     if not campaign_name:
@@ -267,7 +268,7 @@ def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         audit_log = {
             "actionType": "Call Completed",
             "performedBy": "AI Agent",
-            "timestamp": {"$date": datetime.utcnow().isoformat() + "Z"},
+            "timestamp": {"$date": get_brisbane_now().isoformat() + "Z"},
             "details": {
                 "callId": call_id,
                 "status": call_info['status'],   
@@ -288,7 +289,7 @@ def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             "calls.$.recordingUrl": call_info['recordingUrl'],
             "calls.$.callSummary": call_info['callSummary'],
             "calls.$.transcript": call_info['transcript'],
-            "updatedAt": {"$date": datetime.utcnow().isoformat() + "Z"},
+            "updatedAt": {"$date": get_brisbane_now().isoformat() + "Z"},
             "auditLogs.$[log].details.status": audit_log["details"]["status"],
             "isEbook": is_ebook,
             "isNewsletterSent": is_newsletter_sent
@@ -445,7 +446,7 @@ def update_prospect_appointment(phone_number: str, appointment_interest: bool, a
                 "$set": {
                     "appointment": appointment_info,
                     "status": "picked_up",  # Update status to picked_up when appointment is scheduled
-                    "updatedAt": {"$date": datetime.utcnow().isoformat() + "Z"}
+                    "updatedAt": {"$date": get_brisbane_now().isoformat() + "Z"}
                 }
             }
         )
@@ -454,7 +455,7 @@ def update_prospect_appointment(phone_number: str, appointment_interest: bool, a
         audit_log = {
             "actionType": "Appointment Updated",
             "performedBy": "User",
-            "timestamp": {"$date": datetime.utcnow().isoformat() + "Z"},
+            "timestamp": {"$date": get_brisbane_now().isoformat() + "Z"},
             "details": {
                 "appointmentInterest": appointment_interest,
                 "appointmentDateTime": appointment_date_time,

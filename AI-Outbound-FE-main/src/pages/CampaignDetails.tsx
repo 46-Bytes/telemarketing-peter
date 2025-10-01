@@ -8,6 +8,7 @@ import { useMicrosoftGraph } from '../hooks/useMicrosoftGraph';
 import useAuthorization from '../hooks/useAuthorization';
 import AddProspectModal from '../components/AddProspectModal';
 import Papa from 'papaparse';
+import { getBrisbaneDate } from '../utils/timezone';
 import { useAuth } from '../contexts/AuthContext';
 import ApiKeyRequired from '../components/ApiKeyRequired';
 import { formatDuration } from '../components/MetricDetailsModal';
@@ -1615,7 +1616,7 @@ const CampaignDetails: React.FC = () => {
                   type="date"
                   value={campaignDate}
                   onChange={(e) => setCampaignDate(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
+                  min={getBrisbaneDate()}
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
@@ -1766,7 +1767,7 @@ const CampaignDetails: React.FC = () => {
                   type="date"
                   value={campaignDate}
                   onChange={(e) => setCampaignDate(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
+                  min={getBrisbaneDate()}
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>

@@ -12,10 +12,8 @@ def get_total_calls_made(userId: str):
     user = users_collection.find_one({"name": userId})
     is_super_admin = user and user.get("role") == "super_admin"
 
-    # Build match stage
-    match_stage = {"calls.status": "ended"}
-
-    # Only add ownerName if not outbound and not a super_admin
+    # Build match stage - count all calls regardless of status
+    match_stage = {}
     if not is_super_admin:
         match_stage["ownerName"] = userId
 
@@ -37,7 +35,7 @@ def get_connected_calls(userId: str):
     is_super_admin = user and user.get("role") == "super_admin"
 
     # Build match stage
-    match_stage = {"calls.status": "ended"}
+    match_stage = {"calls.status": "ended"} # Need to update it to status only - maybe picked_up 
 
     # Only add ownerName if not outbound and not a super_admin
     if not is_super_admin:
@@ -111,13 +109,10 @@ def get_average_call_duration(userId: str):
     is_super_admin = user and user.get("role") == "super_admin"
 
     pipeline = [
-        {"$match": {"calls.status": "ended"}},
+        {"$match": {"ownerName": userId} if not is_super_admin else {}},
         {"$unwind": "$calls"},
         {"$group": {"_id": None, "averageCallDuration": {"$avg": "$calls.duration"}}}
     ]
-
-    if not is_super_admin:
-        pipeline.append({"$match": {"ownerName": userId}})
 
     result = collection.aggregate(pipeline)
     print("result", result)
@@ -253,7 +248,7 @@ def get_call_back_schedule(userId: str):
     is_super_admin = user and user.get("role") == "super_admin"
 
     # Build match stage
-    match_stage = {"callBackDate": {"$exists": True}}
+    match_stage = {"callBackDate": {"$ne": None}}
 
     # Only add ownerName if not outbound and not a super_admin
     if not is_super_admin:

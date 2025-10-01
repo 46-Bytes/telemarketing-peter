@@ -54,7 +54,7 @@ const Home: React.FC = () => {
         setTotalEbooksSent(ebooksResponse.total_ebook_sent);
         setTotalCallbacksScheduled(callbackSchedulesResponse.total_call_backs);
         setConverstionRate({
-          A: (connectedResponse.totalScheduledCallbacks/connectedResponse.total_connected_calls)*100, 
+          A: (callbackSchedulesResponse.total_call_backs/connectedResponse.total_connected_calls)*100, 
           B: (bookedResponse.total_appointments_booked/connectedResponse.total_connected_calls)*100, 
           C: (ebooksResponse.total_ebook_sent/connectedResponse.total_connected_calls)*100, 
         });

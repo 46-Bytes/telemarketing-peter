@@ -4,6 +4,7 @@ import { authApi } from "../api/authApi";
 // import { useAuth } from "../contexts/AuthContext";
 import useAuthorization from "../hooks/useAuthorization";
 import EnhancedCampaignCard from "../components/EnhancedCampaignCard";
+import { getBrisbaneDate } from "../utils/timezone";
 import { Campaign } from "../types/campaign";
 
 const CampaignsAdmin: React.FC = () => {
@@ -426,7 +427,7 @@ const CampaignsAdmin: React.FC = () => {
                   <input
                     type="date"
                     value={campaignDate}
-                    min={new Date().toISOString().split('T')[0]}
+                    min={getBrisbaneDate()}
                     onChange={(e) => setCampaignDate(e.target.value)}
                     className="w-full py-1.5 px-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
