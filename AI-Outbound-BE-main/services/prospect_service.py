@@ -139,7 +139,7 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
         "message": "Prospects Added successfully",
     }
 
-def update_prospect_call_info(webhook_data: Dict[Any, Any]):
+async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
     """Update prospect information with call details from webhook"""
     try:
         collection = get_prospects_collection()

@@ -80,7 +80,7 @@ def read_root():
 async def webhook(request: Request):
     data = await request.json()
     if data["event"] == "call_analyzed":
-        result = update_prospect_call_info(data)
+        result = await update_prospect_call_info(data)
     return {"message": "Webhook received"}
 
 if __name__ == "__main__":
