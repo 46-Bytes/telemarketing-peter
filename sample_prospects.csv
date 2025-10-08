@@ -1,6 +1,6 @@
 name,phoneNumber,businessName
-John Smith,+61 412 345 678,Smith's Bakery
-Jane Doe,0412-345-679,Doe Consulting
-Bob Johnson,(02) 9876 5432,Johnson & Associates
-Sarah Wilson,0412345678,Wilson's Cafe
-Mike Brown,+61412345679,Brown Construction
+,+61 412 345 678,Smith's Bakery
+,0412-345-679,Doe Consulting
+,(02) 9876 5432,Johnson & Associates
+,0412345678,Wilson's Cafe
+,+61412345679,Brown Construction

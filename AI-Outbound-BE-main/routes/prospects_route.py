@@ -12,8 +12,11 @@ from services.prospect_service import (
     get_prospect_by_phone_number
 )
 from config.database import get_campaign_users_collection
+import logging
 
-
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/demo")
@@ -202,13 +205,14 @@ async def initiate_call(request: Request):
         try:
             result = create_phone_call([prospect_obj])
             
-            return {
-                "status": "success",
-                "message": f"Call initiated to {formatted_phone}",
-                "data": {
-                    "callId": result.call_id if hasattr(result, 'call_id') else None
-                }
-            }
+            # return {
+            #     "status": "success",
+            #     "message": f"Call initiated to {formatted_phone}",
+            #     "data": {
+            #         "callId": result.call_id if hasattr(result, 'call_id') else None
+            #     }
+            # }
+            logger.info(f"Total Prospects: {result['total_prospects']}, Total Batches: {result['total_batches']}, Batch Responses: {result['batch_responses']}")
         except Exception as call_error:
             raise HTTPException(
                 status_code=500,

@@ -25,7 +25,8 @@ interface ProspectDetails {
     appointmentType?: string | null;
   };
   calls: Array<{
-    callId: string;
+    callId?: string;
+    batchId?: string;
     timestamp: string;
     status: string;
     duration: number;
@@ -638,16 +639,19 @@ const ProspectSummary = () => {
                 <div className="space-y-3">
                   {(selectedProspect.calls || []).length > 0 ? (
                     [...(selectedProspect?.calls || [])].reverse().map((call:any, index) => (
-                      <div key={call.callId || index} className="bg-white p-4 rounded-lg border border-slate-100 hover:shadow-md transition-shadow duration-200">
+                      <div key={call.callId || call.batchId || index} className="bg-white p-4 rounded-lg border border-slate-100 hover:shadow-md transition-shadow duration-200">
                         <div className="grid grid-cols-2 gap-4 mb-2">
                           <div className="space-y-1">
                             <p className="text-sm font-medium text-slate-400">Status</p>
                             <p className="text-sm font-semibold text-slate-700">{(call.status || 'Unknown').replace('_', ' ')}</p>
                           </div>
                           <div className="space-y-1">
-                            <p className="text-sm font-medium text-slate-400">Duration</p>
+                            <p className="text-sm font-medium text-slate-400">
+                              {call.batchId ? 'Batch ID' : 'Duration'}
+                            </p>
                             <p className="text-sm font-semibold text-slate-700">
-                              {typeof call.duration === 'number' ? `${call.duration.toFixed(2)} seconds` : 'N/A'}
+                              {call.batchId ? call.batchId : 
+                               typeof call.duration === 'number' ? `${call.duration.toFixed(2)} seconds` : 'N/A'}
                             </p>
                           </div>
                         </div>
@@ -657,10 +661,12 @@ const ProspectSummary = () => {
                             {call.timestamp ? new Date(call.timestamp).toLocaleString('en-GB') : 'N/A'}
                           </p>
                         </div>
-                        <div className="mt-2 pt-2 border-t border-slate-100">
-                          <p className="text-sm font-medium text-slate-400">Call Outcome</p>
-                          <p className="text-sm text-slate-700 mt-1">{call.callSummary || 'No summary available'}</p>
-                          <p className="text-sm font-medium text-slate-400">Transcript</p>
+                        {/* Only show call summary and transcript for individual calls */}
+                        {!call.batchId && (
+                          <div className="mt-2 pt-2 border-t border-slate-100">
+                            <p className="text-sm font-medium text-slate-400">Call Outcome</p>
+                            <p className="text-sm text-slate-700 mt-1">{call.callSummary || 'No summary available'}</p>
+                            <p className="text-sm font-medium text-slate-400">Transcript</p>
                                 <p className="text-sm text-slate-700 mt-1">
                                 {call.transcript 
                                 ? call.transcript
@@ -677,7 +683,8 @@ const ProspectSummary = () => {
                                 : 'No transcript available'}
                                 </p>
                           {/* <p className="text-sm text-slate-700 mt-1">{call.transcript || 'No transcript available'}</p> */}
-                        </div>
+                          </div>
+                        )}
                       </div>
                     ))
                   ) : (

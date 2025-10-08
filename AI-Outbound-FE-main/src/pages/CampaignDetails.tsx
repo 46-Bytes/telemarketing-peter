@@ -46,6 +46,7 @@ interface Prospect {
     timestamp?: string;
     callSummary?: string;
     callId?: string;
+    batchId?: string;
     recordingUrl?: string;
   }>;
 }
@@ -1270,8 +1271,9 @@ const CampaignDetails: React.FC = () => {
                               </span>
                               {call.status && (
                                 <span className={`px-2 py-0.5 text-xs rounded-full ${
-                                  call.status === 'completed' ? 'bg-green-100 text-green-800' : 
-                                  call.status === 'failed' ? 'bg-red-100 text-red-800' : 
+                                  call.status === 'completed' || call.status === 'ended' ? 'bg-green-100 text-green-800' : 
+                                  call.status === 'failed' || call.status === 'error' ? 'bg-red-100 text-red-800' : 
+                                  call.status === 'not_connected' || call.status === 'NOT_CONNECTED' ? 'bg-gray-100 text-gray-800' :
                                   'bg-yellow-100 text-yellow-800'
                                 }`}>
                                   {call.status.toUpperCase()}
@@ -1279,32 +1281,44 @@ const CampaignDetails: React.FC = () => {
                               )}
                             </div>
 
-                            {call.callId && (
+                            {(call.callId || call.batchId) && (
                               <div className="text-xs text-gray-500 mb-2">
-                                Call ID: {call.callId}
+                                {call.batchId ? `Batch ID: ${call.batchId}` : `Call ID: ${call.callId}`}
                               </div>
                             )}
 
-                            {call.recordingUrl && (
-                              <div className="text-xs text-gray-500 text-blue-500 truncate mb-2">
-                                Recording URL: <a href={call.recordingUrl} target="_blank" rel="noopener noreferrer">{call.recordingUrl}</a>
-                              </div>
-                            )}
-
-                            
-                            {call.duration && (
+                            {/* Show different content based on call type */}
+                            {call.batchId ? (
+                              // Batch call display - minimal information
                               <div className="text-xs text-gray-500 mb-2">
-                                Duration: {call.duration}sec
+                                {call.status === 'NOT_CONNECTED' || call.status === 'not_connected' ? '0' : 'Processing...'}
                               </div>
+                            ) : (
+                              // Individual call display - full information
+                              <>
+                                {call.recordingUrl && (
+                                  <div className="text-xs text-gray-500 text-blue-500 truncate mb-2">
+                                    Recording URL: <a href={call.recordingUrl} target="_blank" rel="noopener noreferrer">{call.recordingUrl}</a>
+                                  </div>
+                                )}
+                                
+                                {call.duration && (
+                                  <div className="text-xs text-gray-500 mb-2">
+                                    Duration: {call.duration}sec
+                                  </div>
+                                )}
+                              </>
                             )}
 
-                            {call.callSummary && (
+                            {/* Only show call summary for individual calls */}
+                            {!call.batchId && call.callSummary && (
                               <div className="text-xs text-gray-500 mb-2">
                                 Call Summary: {call.callSummary}
                               </div>
                             )}
                             
-                            {call.transcript && (
+                            {/* Only show transcript for individual calls */}
+                            {!call.batchId && call.transcript && (
   <div className="mt-2">
     <div className="text-xs font-medium text-gray-500 mb-1">Transcript:</div>
     <div className="text-sm bg-white p-3 rounded border border-gray-200 max-h-64 overflow-y-auto space-y-3">

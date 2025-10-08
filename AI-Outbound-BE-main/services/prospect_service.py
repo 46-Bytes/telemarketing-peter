@@ -141,15 +141,16 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
     }
 
 async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
-    """Update prospect information with call details from webhook"""
+    """Update prospect information with call details from webhook - handles both individual and batch calls"""
     try:
+        logger.info(f"Updating prospect call info for webhook data: {webhook_data}")
         collection = get_prospects_collection()
         call_data = webhook_data.get('call', {})
         
         # Extract required information from webhook data
         call_info = {
             "timestamp": datetime.fromtimestamp(call_data.get('start_timestamp', 0) / 1000).isoformat() + "Z",
-            "duration": call_data.get('duration_ms') / 1000,
+            "duration": call_data.get('duration_ms', 0) / 1000,
             "status": call_data.get('disconnection_reason') if call_data.get('call_status') == "error" else call_data.get('call_status'),
             "recordingUrl": call_data.get('recording_url'),
             "transcript": call_data.get('transcript'),
@@ -159,14 +160,56 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         # Get the existing prospect data first
         to_number = call_data.get('to_number', '')
         call_id = call_data.get('call_id')
-        campaign_id = call_data.get('retell_llm_dynamic_variables').get('campaign_id')
+        campaign_id = call_data.get('retell_llm_dynamic_variables', {}).get('campaign_id')
         
-        # Update query to match both phone number and campaign ID
+        # For batch calls, we need to find the prospect by phone number and campaign ID
+        # and look for a call entry with batchId (not callId)
         existing_prospect = collection.find_one({
             "phoneNumber": to_number,
-            "campaignId": campaign_id,
-            "calls.callId": call_id
+            "campaignId": campaign_id
         })
+        
+        if not existing_prospect:
+            logger.warning(f"No prospect found for phone {to_number} in campaign {campaign_id}")
+            return {"message": "Prospect not found"}
+        
+        # Check if this is a batch call by looking for batchId in calls array
+        batch_call_entry = None
+        for call_entry in existing_prospect.get('calls', []):
+            if call_entry.get('batchId') and not call_entry.get('callId'):
+                batch_call_entry = call_entry
+                break
+        
+        if batch_call_entry:
+            # This is a batch call - we need to replace the batch entry with detailed call info
+            call_info.update({
+                "callId": call_id,
+                "batchId": batch_call_entry.get('batchId')
+            })
+            
+            # Update the call entry by replacing the batch entry
+            collection.update_one(
+                {
+                    "phoneNumber": to_number,
+                    "campaignId": campaign_id,
+                    "calls.batchId": batch_call_entry.get('batchId')
+                },
+                {
+                    "$set": {"calls.$": call_info}
+                }
+            )
+            logger.info(f"Updated batch call entry for prospect {to_number} with call details")
+        else:
+            # This is an individual call - find by callId
+            existing_prospect = collection.find_one({
+                "phoneNumber": to_number,
+                "campaignId": campaign_id,
+                "calls.callId": call_id
+            })
+            
+            if not existing_prospect:
+                logger.warning(f"No call found with callId {call_id} for prospect {to_number}")
+                return {"message": "Call not found"}
 
         # Handle appointment info
         new_appointment_interest = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('appointment_interest')
@@ -204,10 +247,8 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         if appointment_type is None and new_appointment_interest is True:
             appointment_type = 'selling'
         
-        # Initialize existing_appointment with an empty dictionary if existing_prospect is None
-        existing_appointment = {}
-        if existing_prospect:
-            existing_appointment = existing_prospect.get('appointment', {})
+        # Get existing appointment info
+        existing_appointment = existing_prospect.get('appointment', {})
             
         appointment_info = {
             "appointmentInterest": new_appointment_interest if (existing_appointment.get('appointmentInterest') is None or existing_appointment.get('appointmentInterest') is False) else existing_appointment.get('appointmentInterest'),
@@ -276,22 +317,15 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             }
         }
 
-        # Create update dictionary
-        update_dict = {
+        # Create update dictionary for prospect-level fields
+        prospect_update_dict = {
             "scheduledCallDate": new_call_back_date,
             "email": email,
             "status": "picked_up" if call_data.get('call_status') == "ended" else "error",
             "isCallBack": is_callback,
             "callBackDate": call_back_date,
             "appointment": appointment_info,
-            "calls.$.timestamp": call_info['timestamp'],
-            "calls.$.duration": call_info['duration'],
-            "calls.$.status": call_info['status'], 
-            "calls.$.recordingUrl": call_info['recordingUrl'],
-            "calls.$.callSummary": call_info['callSummary'],
-            "calls.$.transcript": call_info['transcript'],
             "updatedAt": {"$date": get_brisbane_now().isoformat() + "Z"},
-            "auditLogs.$[log].details.status": audit_log["details"]["status"],
             "isEbook": is_ebook,
             "isNewsletterSent": is_newsletter_sent
         }
@@ -300,35 +334,107 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         if analysis_callback_date and isinstance(analysis_callback_date, str) and len(analysis_callback_date) == 10:
             try:
                 datetime.strptime(analysis_callback_date, '%Y-%m-%d')
-                update_dict["retryCount"] = 1
-                # Update using $inc for callBackCount in a separate operation
-                collection.update_one(
-                    {
-                        "phoneNumber": to_number,
-                        "calls.callId": call_id,
-                        "campaignId": campaign_id
-                    },
-                    {
-                        "$inc": {"callBackCount": 1}
-                    }
-                )
+                prospect_update_dict["retryCount"] = 1
             except ValueError:
                 pass
 
-        # Update the specific call record in the calls array and add audit log
-        result = collection.update_one(
-            {
-                "phoneNumber": to_number,
-                "calls.callId": call_id,
-                "campaignId": campaign_id
-            },
-            {
-                "$set": update_dict
-            },
-            array_filters=[
-                {"log.details.callId": call_id}
-            ]
-        )
+        if batch_call_entry:
+            # For batch calls, update the prospect and the call entry separately
+            # First update the prospect-level fields
+            collection.update_one(
+                {
+                    "phoneNumber": to_number,
+                    "campaignId": campaign_id
+                },
+                {
+                    "$set": prospect_update_dict,
+                    "$push": {"auditLogs": audit_log}
+                }
+            )
+            
+            # Then update the call entry with detailed call info
+            collection.update_one(
+                {
+                    "phoneNumber": to_number,
+                    "campaignId": campaign_id,
+                    "calls.batchId": batch_call_entry.get('batchId')
+                },
+                {
+                    "$set": {
+                        "calls.$.timestamp": call_info['timestamp'],
+                        "calls.$.duration": call_info['duration'],
+                        "calls.$.status": call_info['status'],
+                        "calls.$.recordingUrl": call_info['recordingUrl'],
+                        "calls.$.callSummary": call_info['callSummary'],
+                        "calls.$.transcript": call_info['transcript'],
+                        "calls.$.callId": call_id
+                    }
+                }
+            )
+            
+            # Increment callBackCount if needed
+            if analysis_callback_date and isinstance(analysis_callback_date, str) and len(analysis_callback_date) == 10:
+                try:
+                    datetime.strptime(analysis_callback_date, '%Y-%m-%d')
+                    collection.update_one(
+                        {
+                            "phoneNumber": to_number,
+                            "campaignId": campaign_id
+                        },
+                        {
+                            "$inc": {"callBackCount": 1}
+                        }
+                    )
+                except ValueError:
+                    pass
+                    
+        else:
+            # For individual calls, use the original logic
+            call_update_dict = {
+                "calls.$.timestamp": call_info['timestamp'],
+                "calls.$.duration": call_info['duration'],
+                "calls.$.status": call_info['status'], 
+                "calls.$.recordingUrl": call_info['recordingUrl'],
+                "calls.$.callSummary": call_info['callSummary'],
+                "calls.$.transcript": call_info['transcript']
+            }
+            
+            # Combine prospect and call updates
+            update_dict = {**prospect_update_dict, **call_update_dict}
+            update_dict["auditLogs.$[log].details.status"] = audit_log["details"]["status"]
+            
+            # Update the specific call record in the calls array and add audit log
+            result = collection.update_one(
+                {
+                    "phoneNumber": to_number,
+                    "calls.callId": call_id,
+                    "campaignId": campaign_id
+                },
+                {
+                    "$set": update_dict,
+                    "$push": {"auditLogs": audit_log}
+                },
+                array_filters=[
+                    {"log.details.callId": call_id}
+                ]
+            )
+            
+            # Increment callBackCount if needed
+            if analysis_callback_date and isinstance(analysis_callback_date, str) and len(analysis_callback_date) == 10:
+                try:
+                    datetime.strptime(analysis_callback_date, '%Y-%m-%d')
+                    collection.update_one(
+                        {
+                            "phoneNumber": to_number,
+                            "calls.callId": call_id,
+                            "campaignId": campaign_id
+                        },
+                        {
+                            "$inc": {"callBackCount": 1}
+                        }
+                    )
+                except ValueError:
+                    pass
 
         logger.info(f"Successfully updated prospect call information for phone number: {to_number}")
         return {"message": "Prospect call information updated successfully"}
