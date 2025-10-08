@@ -372,11 +372,11 @@ def get_calendar_events(month=None, year=None, owner_name=None, user_role=None):
                 
                 calendar_event = {
                     "id": prospect["phoneNumber"],
-                    "title": f"{prospect['name']} - {prospect.get('businessName', 'No Business')}",
+                    "title": f"{prospect.get('name', 'Unknown')} - {prospect.get('businessName', 'No Business')}",
                     "appointmentDateTime": prospect["appointment"]["appointmentDateTime"],
                     "resource": {
                         "id": prospect["phoneNumber"],
-                        "prospectName": prospect["name"],
+                        "prospectName": prospect.get("name", "Unknown"),
                         "prospectPhoneNumber": prospect["phoneNumber"],
                         "businessName": prospect.get("businessName"),
                         "appointmentDateTime": prospect["appointment"]["appointmentDateTime"],

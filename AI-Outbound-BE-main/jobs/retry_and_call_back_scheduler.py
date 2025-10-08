@@ -52,7 +52,7 @@ def schedule_callbacks():
         # Convert MongoDB documents to ProspectIn objects
         prospect_objects = [
             ProspectIn(
-                name=prospect["name"],
+                name=prospect.get("name"),
                 phoneNumber=prospect["phoneNumber"],
                 businessName=prospect["businessName"],
                 ownerName=prospect.get("ownerName", ""),

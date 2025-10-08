@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()   
 
-def send_ebook_email(email: str, pdf_path: str, name: str):
+def send_ebook_email(email: str, pdf_path: str, name: str = None):
     """
     Send an ebook via email. The pdf_path can be either a URL or a local file path.
     """
@@ -149,7 +149,7 @@ def send_ebook_email(email: str, pdf_path: str, name: str):
         # Add text body
         from datetime import datetime
 
-        first_name = name or "User"
+        first_name = name or "There"
         logo_url = "https://www.benchmarkbusiness.com.au/wp-content/uploads/2024/03/Benchmark-Web-Logo-2024-Black-text.png"  # Replace with your actual logo URL
         current_year = datetime.now().year
 
@@ -172,7 +172,7 @@ def send_ebook_email(email: str, pdf_path: str, name: str):
                         </tr>
                         <tr>
                             <td style="padding: 30px;">
-                                <p>Dear <strong>{first_name}</strong>,</p>
+                                <p>Hi <strong>{first_name}</strong>,</p>
 
                                 <p>Please find attached to this email a copy of the ebook you had requested.</p>
 

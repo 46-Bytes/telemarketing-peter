@@ -27,7 +27,8 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
     
     for prospect in prospects:
         # Debug logging for each prospect
-        logger.info(f"Processing prospect: {prospect.name}, phone: {prospect.phoneNumber}, " +
+        prospect_name = prospect.name or "Unknown"
+        logger.info(f"Processing prospect: {prospect_name}, phone: {prospect.phoneNumber}, " +
                    f"campaign: {prospect.campaignName or campaign_name}, " +
                    f"campaignId: {prospect.campaignId or campaign_id}, " +
                    f"owner: {prospect.ownerName}")

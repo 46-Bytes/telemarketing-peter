@@ -44,17 +44,19 @@ def create_phone_call(prospects):
         collection = get_prospects_collection()
         for prospect in prospects:
             if not prospect.phoneNumber:
-                logger.warning(f"Missing phone number for prospect {prospect.name}")
+                prospect_name = prospect.name or "Unknown"
+                logger.warning(f"Missing phone number for prospect {prospect_name}")
                 continue
                 
             # Log call initiation attempt
-            logger.info(f"Initiating call to {prospect.phoneNumber} for {prospect.name}")
+            prospect_name = prospect.name or "Unknown"
+            logger.info(f"Initiating call to {prospect.phoneNumber} for {prospect_name}")
             logger.info(f"Campaign ID: {prospect.campaignId}")
             # Initiate the call
             phone_call_response = client.call.create_phone_call(
                 from_number=from_number,
                 to_number=prospect.phoneNumber,
-                retell_llm_dynamic_variables={"user_name": prospect.name, "business_name": prospect.businessName, "owner_name":prospect.ownerName,"phoneNumber":prospect.phoneNumber,"campaign_id":prospect.campaignId}
+                retell_llm_dynamic_variables={"user_name": prospect.name or "There", "business_name": prospect.businessName, "owner_name":prospect.ownerName,"phoneNumber":prospect.phoneNumber,"campaign_id":prospect.campaignId}
             )
             
             logger.info(f"Call initiated: {phone_call_response}")

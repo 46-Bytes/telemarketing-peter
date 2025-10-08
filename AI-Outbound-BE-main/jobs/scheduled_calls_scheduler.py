@@ -78,7 +78,7 @@ def process_scheduled_calls():
         # Convert MongoDB documents to ProspectIn objects
         prospect_objects = [
             ProspectIn(
-                name=prospect["name"],
+                name=prospect.get("name"),
                 phoneNumber=prospect["phoneNumber"],
                 businessName=prospect["businessName"],
                 scheduledCallDate=datetime.fromisoformat(prospect["scheduledCallDate"].replace("Z", "+00:00")),

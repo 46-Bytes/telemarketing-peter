@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional, Union
 
 class ProspectIn(BaseModel):
-    name: str
+    name: Optional[str] = None
     phoneNumber: str
     businessName: str = ""
     email: str = ""

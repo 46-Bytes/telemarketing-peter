@@ -17,7 +17,7 @@ async def send_ebook(request: Request):
         data = await request.json()
         email = data["args"]["email"]
         campaign_id = data["args"]["campaign_id"]
-        name = data["args"]["user_name"]
+        # name = data["args"]["user_name"]
         # Get owner name if provided
         #owner_name = data["args"].get("owner_name", None)
         
@@ -64,13 +64,13 @@ async def send_ebook(request: Request):
                 logger.info(f"Using converted URL: {ebook_url}")
             
             # Send the email with the ebook
-            send_ebook_email(email, ebook_url, name)
+            send_ebook_email(email, ebook_url)
             return {"message": "Email sent successfully", "ebook_path": ebook_path}
         else:
             # Fallback to default PDF if user or ebook path not found
             logger.warning(f"Ebook path not found for user. Using default PDF.")
             default_pdf = os.getenv("DEFAULT_PDF_URL")
-            send_ebook_email(email, default_pdf, name)
+            send_ebook_email(email, default_pdf)
             return {"message": "Email sent with default PDF", "ebook_path": default_pdf}
             
     except PyMongoError as e:

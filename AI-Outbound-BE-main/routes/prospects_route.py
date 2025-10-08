@@ -73,11 +73,11 @@ async def upload_prospects(request: Request):
         for user in users:
             try:
                 # Validate required fields
-                if not user.get('name') or not user.get('phoneNumber'):
-                    raise HTTPException(status_code=400, detail="Name and phone number are required for each prospect")
+                if not user.get('phoneNumber'):
+                    raise HTTPException(status_code=400, detail="Phone number is required for each prospect")
                 
                 prospect = ProspectIn(
-                    name=user.get('name', '').strip(),
+                    name=user.get('name', '').strip() if user.get('name') else None,
                     phoneNumber=user.get('phoneNumber', '').strip(),
                     businessName=user.get('businessName', '').strip(),
                     email=user.get('email', '').strip(),
