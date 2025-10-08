@@ -14,7 +14,7 @@ import ApiKeyRequired from '../components/ApiKeyRequired';
 import { formatDuration } from '../components/MetricDetailsModal';
 
 interface CsvData {
-  name: string;
+  name?: string;
   phoneNumber: string;
   businessName: string;
   email: string;
@@ -22,7 +22,7 @@ interface CsvData {
 
 interface Prospect {
   id: string;
-  name: string;
+  name?: string;
   phoneNumber: string;
   businessName?: string;
   status: string;

@@ -8,7 +8,7 @@ import { Navigate } from 'react-router-dom';
 import { Campaign } from '../types/campaign';
 
 interface CsvData {
-    name: string;
+    name?: string;
     phoneNumber: string;
     businessName: string;
 }

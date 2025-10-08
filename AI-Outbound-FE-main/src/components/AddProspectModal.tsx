@@ -91,7 +91,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({ isOpen, onClose, on
       
       // Format data as expected by the API
       const userData = [{
-        name: newProspect.name.trim(),
+        name: newProspect.name.trim() || undefined,
         phoneNumber: formattedPhoneNumber,
         email: newProspect.email.trim(),
         businessName: newProspect.businessName.trim(),
@@ -161,7 +161,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({ isOpen, onClose, on
         <form onSubmit={handleAddProspect}>
           <div className="space-y-4">
             <div>
-              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Name</label>
               <input
                 type="text"
                 id="name"
@@ -169,7 +169,7 @@ const AddProspectModal: React.FC<AddProspectModalProps> = ({ isOpen, onClose, on
                 value={newProspect.name}
                 onChange={handleInputChange}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                required
+                placeholder="Optional"
               />
             </div>
             

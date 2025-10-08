@@ -11,7 +11,7 @@ interface EnhancedCampaignCardProps {
 }
 
 interface CsvData {
-  name: string;
+  name?: string;
   phoneNumber: string;
   businessName: string;
 }
