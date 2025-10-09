@@ -661,8 +661,8 @@ const ProspectSummary = () => {
                             {call.timestamp ? new Date(call.timestamp).toLocaleString('en-GB') : 'N/A'}
                           </p>
                         </div>
-                        {/* Only show call summary and transcript for individual calls */}
-                        {!call.batchId && (
+                        {/* Show call summary and transcript for individual calls and completed batch calls */}
+                        {(!call.batchId || (call.batchId && (call.status === 'ended' || call.status === 'completed' || call.status === 'busy' || call.status === 'no_answer' || call.status === 'voicemail'))) && (
                           <div className="mt-2 pt-2 border-t border-slate-100">
                             <p className="text-sm font-medium text-slate-400">Call Outcome</p>
                             <p className="text-sm text-slate-700 mt-1">{call.callSummary || 'No summary available'}</p>

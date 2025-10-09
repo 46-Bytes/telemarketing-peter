@@ -148,10 +148,19 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         call_data = webhook_data.get('call', {})
         
         # Extract required information from webhook data
+        call_status = call_data.get('call_status', 'unknown')
+        disconnection_reason = call_data.get('disconnection_reason')
+        
+        # Map call status to our internal status
+        if call_status == "error" and disconnection_reason:
+            mapped_status = disconnection_reason
+        else:
+            mapped_status = call_status
+            
         call_info = {
             "timestamp": datetime.fromtimestamp(call_data.get('start_timestamp', 0) / 1000).isoformat() + "Z",
             "duration": call_data.get('duration_ms', 0) / 1000,
-            "status": call_data.get('disconnection_reason') if call_data.get('call_status') == "error" else call_data.get('call_status'),
+            "status": mapped_status,
             "recordingUrl": call_data.get('recording_url'),
             "transcript": call_data.get('transcript'),
             "callSummary": call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('call_summary_info')
@@ -173,9 +182,12 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             logger.warning(f"No prospect found for phone {to_number} in campaign {campaign_id}")
             return {"message": "Prospect not found"}
         
-        # Check if this is a batch call by looking for batchId in calls array
+        # Check if this is a batch call by looking for the most recent batch call entry
         batch_call_entry = None
-        for call_entry in existing_prospect.get('calls', []):
+        calls = existing_prospect.get('calls', [])
+        
+        # Find the most recent batch call entry (last one in the array)
+        for call_entry in reversed(calls):
             if call_entry.get('batchId') and not call_entry.get('callId'):
                 batch_call_entry = call_entry
                 break
@@ -187,8 +199,10 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                 "batchId": batch_call_entry.get('batchId')
             })
             
+            logger.info(f"Found batch call entry: {batch_call_entry.get('batchId')} for prospect {to_number}")
+            
             # Update the call entry by replacing the batch entry
-            collection.update_one(
+            update_result = collection.update_one(
                 {
                     "phoneNumber": to_number,
                     "campaignId": campaign_id,
@@ -198,7 +212,17 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                     "$set": {"calls.$": call_info}
                 }
             )
-            logger.info(f"Updated batch call entry for prospect {to_number} with call details")
+            
+            if update_result.modified_count > 0:
+                logger.info(f"Successfully updated batch call entry for prospect {to_number} with call details")
+            else:
+                logger.warning(f"Failed to update batch call entry for prospect {to_number}")
+                # Fallback: try to add the call directly
+                collection.update_one(
+                    {"phoneNumber": to_number, "campaignId": campaign_id},
+                    {"$push": {"calls": call_info}}
+                )
+                logger.info(f"Added call directly to prospect {to_number}")
         else:
             # This is an individual call - find by callId
             existing_prospect = collection.find_one({
@@ -317,11 +341,20 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             }
         }
 
+        # Map call status to prospect status
+        call_status = call_data.get('call_status', 'unknown')
+        if call_status == "ended":
+            prospect_status = "picked_up"
+        elif call_status in ["busy", "no_answer", "voicemail"]:
+            prospect_status = "contacted"
+        else:
+            prospect_status = "error"
+            
         # Create update dictionary for prospect-level fields
         prospect_update_dict = {
             "scheduledCallDate": new_call_back_date,
             "email": email,
-            "status": "picked_up" if call_data.get('call_status') == "ended" else "error",
+            "status": prospect_status,
             "isCallBack": is_callback,
             "callBackDate": call_back_date,
             "appointment": appointment_info,

@@ -1289,10 +1289,34 @@ const CampaignDetails: React.FC = () => {
 
                             {/* Show different content based on call type */}
                             {call.batchId ? (
-                              // Batch call display - minimal information
-                              <div className="text-xs text-gray-500 mb-2">
-                                {call.status === 'NOT_CONNECTED' || call.status === 'not_connected' ? '0' : 'Processing...'}
-                              </div>
+                              // Batch call display - show full info if completed, processing if not
+                              <>
+                                {call.status === 'NOT_CONNECTED' || call.status === 'not_connected' ? (
+                                  <div className="text-xs text-gray-500 mb-2">
+                                    Not Connected
+                                  </div>
+                                ) : call.status === 'ended' || call.status === 'completed' || call.status === 'busy' || call.status === 'no_answer' || call.status === 'voicemail' ? (
+                                  // Show full call details for completed batch calls
+                                  <>
+                                    {call.recordingUrl && (
+                                      <div className="text-xs text-gray-500 text-blue-500 truncate mb-2">
+                                        Recording URL: <a href={call.recordingUrl} target="_blank" rel="noopener noreferrer">{call.recordingUrl}</a>
+                                      </div>
+                                    )}
+                                    
+                                    {call.duration && (
+                                      <div className="text-xs text-gray-500 mb-2">
+                                        Duration: {call.duration}sec
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  // Still processing
+                                  <div className="text-xs text-gray-500 mb-2">
+                                    Processing...
+                                  </div>
+                                )}
+                              </>
                             ) : (
                               // Individual call display - full information
                               <>
@@ -1310,15 +1334,15 @@ const CampaignDetails: React.FC = () => {
                               </>
                             )}
 
-                            {/* Only show call summary for individual calls */}
-                            {!call.batchId && call.callSummary && (
+                            {/* Show call summary for individual calls and completed batch calls */}
+                            {(!call.batchId || (call.batchId && (call.status === 'ended' || call.status === 'completed' || call.status === 'busy' || call.status === 'no_answer' || call.status === 'voicemail'))) && call.callSummary && (
                               <div className="text-xs text-gray-500 mb-2">
                                 Call Summary: {call.callSummary}
                               </div>
                             )}
                             
-                            {/* Only show transcript for individual calls */}
-                            {!call.batchId && call.transcript && (
+                            {/* Show transcript for individual calls and completed batch calls */}
+                            {(!call.batchId || (call.batchId && (call.status === 'ended' || call.status === 'completed' || call.status === 'busy' || call.status === 'no_answer' || call.status === 'voicemail'))) && call.transcript && (
   <div className="mt-2">
     <div className="text-xs font-medium text-gray-500 mb-1">Transcript:</div>
     <div className="text-sm bg-white p-3 rounded border border-gray-200 max-h-64 overflow-y-auto space-y-3">

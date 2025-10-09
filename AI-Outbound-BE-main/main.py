@@ -20,10 +20,13 @@ import uvicorn
 from pathlib import Path
 from config.cloudinary_config import configure_cloudinary
 import logging
+from retell import Retell
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+retell = Retell(api_key=os.getenv("RETELL_API_KEY"))
 
 app = FastAPI(title="Sales Agent Backend")
 
@@ -79,6 +82,7 @@ def read_root():
 @app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
+    logger.info(f"Webhook received: {data}")
     if data["event"] == "call_analyzed":
         result = await update_prospect_call_info(data)
     return {"message": "Webhook received"}
