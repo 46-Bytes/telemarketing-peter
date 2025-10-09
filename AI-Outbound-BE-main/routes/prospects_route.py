@@ -12,6 +12,7 @@ from services.prospect_service import (
     get_prospect_by_phone_number
 )
 from config.database import get_campaign_users_collection
+from utils.phone_utils import format_and_validate_phone
 
 
 router = APIRouter()
@@ -70,15 +71,33 @@ async def upload_prospects(request: Request):
         
         # Convert the incoming data format to list of ProspectIn objects
         prospects_list = []
+        skipped_prospects = []
+        
         for user in users:
             try:
-                # Validate required fields
-                if not user.get('phoneNumber'):
-                    raise HTTPException(status_code=400, detail="Phone number is required for each prospect")
+                # Check if phone number exists and is not empty
+                raw_phone = user.get('phoneNumber', '').strip()
+                if not raw_phone:
+                    skipped_prospects.append({
+                        'name': user.get('name', 'Unknown'),
+                        'reason': 'No phone number provided'
+                    })
+                    continue
+                
+                # Format phone number to ensure it has + prefix
+                formatted_phone, is_valid = format_and_validate_phone(raw_phone)
+                
+                # Validate formatted phone number
+                if not is_valid:
+                    skipped_prospects.append({
+                        'name': user.get('name', 'Unknown'),
+                        'reason': f'Invalid phone number format: {raw_phone}'
+                    })
+                    continue
                 
                 prospect = ProspectIn(
                     name=user.get('name', '').strip() if user.get('name') else None,
-                    phoneNumber=user.get('phoneNumber', '').strip(),
+                    phoneNumber=formatted_phone,  # Use formatted phone number
                     businessName=user.get('businessName', '').strip(),
                     email=user.get('email', '').strip(),
                     ownerName=owner_name,  # Add owner name to each prospect
@@ -90,6 +109,10 @@ async def upload_prospects(request: Request):
                 prospects_list.append(prospect)
             except Exception as e:
                 print(f"Error creating prospect: {str(e)}")
+                skipped_prospects.append({
+                    'name': user.get('name', 'Unknown'),
+                    'reason': f'Error: {str(e)}'
+                })
         
         print('prospects_list:', prospects_list)
         
@@ -98,6 +121,13 @@ async def upload_prospects(request: Request):
             
         # Upload prospects to database
         result = upload_prospects_service(prospects_list, scheduled_call_date, campaign_name, campaign_id, scheduled_call_time)
+
+        # Add skipped prospects information to result
+        if skipped_prospects:
+            result['skipped_prospects'] = {
+                'count': len(skipped_prospects),
+                'details': skipped_prospects
+            }
 
         # Only initiate calls immediately if no scheduled date is provided
         # if result and not scheduled_call_date:
@@ -235,16 +265,17 @@ async def initiate_campaign_calls(request: Request, background_tasks: Background
         
         # Process each phone number and prepare for calling
         for phone_number in phone_numbers:
-            # Format phone number if needed
-            formatted_phone = phone_number.strip()
-            if not formatted_phone.startswith('+') and formatted_phone.isdigit():
-                formatted_phone = "+" + formatted_phone
+            # Format phone number using the helper function
+            formatted_phone, is_valid = format_and_validate_phone(phone_number)
+            
+            if not is_valid:
+                continue  # Skip invalid phone numbers
             
             # Get the prospect details from database
-            prospect = get_prospect_by_phone_number(formatted_phone,campaign_id)
+            prospect = get_prospect_by_phone_number(formatted_phone, campaign_id)
             if not prospect:
                 # Try with the original format if formatted doesn't match
-                prospect = get_prospect_by_phone_number(phone_number,campaign_id)
+                prospect = get_prospect_by_phone_number(phone_number, campaign_id)
                 if not prospect:
                     continue  # Skip this number if prospect not found
                 formatted_phone = phone_number
