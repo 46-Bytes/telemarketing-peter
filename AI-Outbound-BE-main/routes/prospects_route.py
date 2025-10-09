@@ -2,10 +2,10 @@
 
 from datetime import datetime
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from typing import List
 from models.prospect import ProspectIn
-from services.call_initiation_service import create_phone_call
+from services.call_initiation_service import create_phone_call, create_phone_call_background
 from services.prospect_service import (
     upload_prospects_service,
     get_prospects_by_campaign,
@@ -148,7 +148,7 @@ async def get_prospects_by_campaign_route(request: Request):
         )
 
 @router.get("/initiate_call")
-async def initiate_call(request: Request):
+async def initiate_call(request: Request, background_tasks: BackgroundTasks):
     """
     Initiate a phone call to a specific prospect
     
@@ -198,22 +198,18 @@ async def initiate_call(request: Request):
             campaignId=prospect.get('campaignId', ''),  # Include the campaign ID
         )
         print(f"prospect_obj: {prospect_obj}")
-        # Initiate the call
-        try:
-            result = create_phone_call([prospect_obj])
-            
-            return {
-                "status": "success",
-                "message": f"Call initiated to {formatted_phone}",
-                "data": {
-                    "callId": result.call_id if hasattr(result, 'call_id') else None
-                }
+        # Add call to background tasks
+        background_tasks.add_task(create_phone_call_background, [prospect_obj])
+        
+        return {
+            "status": "success",
+            "message": f"Call initiation queued for {formatted_phone}. The call will be processed in the background.",
+            "data": {
+                "prospectName": prospect.get('name', 'Unknown'),
+                "phoneNumber": formatted_phone,
+                "campaignId": campaign_id
             }
-        except Exception as call_error:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to initiate call: {str(call_error)}"
-            )
+        }
             
     except HTTPException as e:
         raise e
@@ -224,7 +220,7 @@ async def initiate_call(request: Request):
         )
 
 @router.post("/campaign_call")
-async def initiate_campaign_calls(request: Request):
+async def initiate_campaign_calls(request: Request, background_tasks: BackgroundTasks):
     try:
         data = await request.json()
         campaign_name = data.get("campaign_name")
@@ -267,12 +263,17 @@ async def initiate_campaign_calls(request: Request):
         if not prospects_to_call:
             return {"error": "No valid prospects found for the provided phone numbers"}
         
-        # Initiate calls for all valid prospects
-        result = create_phone_call(prospects_to_call)
+        # Add calls to background tasks
+        background_tasks.add_task(create_phone_call_background, prospects_to_call)
         
         return {
             "success": True, 
-            "message": f"Initiated calls for {len(prospects_to_call)} prospects in campaign {campaign_name}"
+            "message": f"Call initiation queued for {len(prospects_to_call)} prospects in campaign {campaign_name}. Calls will be processed in the background.",
+            "data": {
+                "prospectsCount": len(prospects_to_call),
+                "campaignName": campaign_name,
+                "campaignId": campaign_id
+            }
         }
     except Exception as e:
         return {"error": str(e)}

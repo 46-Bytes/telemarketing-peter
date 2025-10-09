@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from services.prospect_service import get_prospects_collection
-from services.call_initiation_service import create_phone_call
+from services.call_initiation_service import create_phone_call_background
 from models.prospect import ProspectIn
 import logging
 from utils.timezone import get_brisbane_now, get_brisbane_date, get_brisbane_time, is_within_call_hours, get_brisbane_timezone_info
@@ -35,7 +35,7 @@ def get_scheduled_prospects():
 
 # Note: is_within_call_hours() is now imported from utils.timezone
 
-def process_scheduled_calls():
+async def process_scheduled_calls():
     """Main function to process scheduled calls"""
     try:
         # Log timezone information for debugging
@@ -88,9 +88,9 @@ def process_scheduled_calls():
             ) for prospect in prospects_to_call
         ]
 
-        # Initiate calls
+        # Initiate calls in background
         logger.info(f"@@@@ --Scheduled Calls------  Initiating scheduled calls for {len(prospect_objects)} prospects")
-        create_phone_call(prospect_objects)
+        await create_phone_call_background(prospect_objects)
 
     except Exception as e:
         logger.error(f"Error in process_scheduled_calls: {str(e)}")

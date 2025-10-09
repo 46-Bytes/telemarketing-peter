@@ -78,6 +78,7 @@ def read_root():
 
 @app.post("/webhook")
 async def webhook(request: Request):
+    logger.info("Webhook received")
     data = await request.json()
     if data["event"] == "call_analyzed":
         result = await update_prospect_call_info(data)
