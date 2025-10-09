@@ -110,7 +110,7 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
                     "phoneNumber": prospect.phoneNumber,
                     "businessName": prospect.businessName,
                     "ownerName": prospect.ownerName,
-                    "email": None,
+                    "email": prospect.email,
                     "status": "new",
                     "retryCount": 0,
                     "callBackCount": 0,
