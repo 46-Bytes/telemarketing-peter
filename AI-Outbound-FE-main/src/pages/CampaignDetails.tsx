@@ -1271,8 +1271,8 @@ const CampaignDetails: React.FC = () => {
                               </span>
                               {call.status && (
                                 <span className={`px-2 py-0.5 text-xs rounded-full ${
-                                  call.status === 'completed' || call.status === 'ended' ? 'bg-green-100 text-green-800' : 
-                                  call.status === 'failed' || call.status === 'error' ? 'bg-red-100 text-red-800' : 
+                                  call.status === 'ended' ? 'bg-green-100 text-green-800' : 
+                                  call.status === 'error' ? 'bg-red-100 text-red-800' : 
                                   call.status === 'not_connected' || call.status === 'NOT_CONNECTED' ? 'bg-gray-100 text-gray-800' :
                                   'bg-yellow-100 text-yellow-800'
                                 }`}>
@@ -1295,7 +1295,7 @@ const CampaignDetails: React.FC = () => {
                                   <div className="text-xs text-gray-500 mb-2">
                                     Not Connected
                                   </div>
-                                ) : call.status === 'ended' || call.status === 'completed' || call.status === 'busy' || call.status === 'no_answer' || call.status === 'voicemail' ? (
+                                ) : call.status === 'ended' ? (
                                   // Show full call details for completed batch calls
                                   <>
                                     {call.recordingUrl && (
@@ -1335,14 +1335,14 @@ const CampaignDetails: React.FC = () => {
                             )}
 
                             {/* Show call summary for individual calls and completed batch calls */}
-                            {(!call.batchId || (call.batchId && (call.status === 'ended' || call.status === 'completed' || call.status === 'busy' || call.status === 'no_answer' || call.status === 'voicemail'))) && call.callSummary && (
+                            {(!call.batchId || (call.batchId && (call.status === 'ended'))) && call.callSummary && (
                               <div className="text-xs text-gray-500 mb-2">
                                 Call Summary: {call.callSummary}
                               </div>
                             )}
                             
                             {/* Show transcript for individual calls and completed batch calls */}
-                            {(!call.batchId || (call.batchId && (call.status === 'ended' || call.status === 'completed' || call.status === 'busy' || call.status === 'no_answer' || call.status === 'voicemail'))) && call.transcript && (
+                            {(!call.batchId || (call.batchId && (call.status === 'ended'))) && call.transcript && (
   <div className="mt-2">
     <div className="text-xs font-medium text-gray-500 mb-1">Transcript:</div>
     <div className="text-sm bg-white p-3 rounded border border-gray-200 max-h-64 overflow-y-auto space-y-3">
