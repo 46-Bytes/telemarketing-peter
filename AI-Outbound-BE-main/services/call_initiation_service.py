@@ -49,7 +49,7 @@ def create_phone_call(prospects):
         logger.info(f"Processing {len(valid_prospects)} prospects for batch calls")
         
         # Batch size for Retell (concurrency of 15)
-        BATCH_SIZE = 5
+        BATCH_SIZE = 15
         total_batches = (len(valid_prospects) + BATCH_SIZE - 1) // BATCH_SIZE
         
         collection = get_prospects_collection()
