@@ -6,12 +6,45 @@ import time
 from config.database import get_prospects_collection
 import logging
 from typing import List, Dict, Any
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 load_dotenv()
+
+def is_valid_australian_phone(phone_number: str) -> bool:
+    """
+    Validate Australian phone number format using regex.
+    
+    Valid formats:
+    - +61XXXXXXXXX (11 digits total, +61 + 9 digits)
+    - 0XXXXXXXXX (10 digits starting with 0)
+    - XXXXXXXXX (9 digits)
+    
+    Args:
+        phone_number (str): Phone number to validate
+        
+    Returns:
+        bool: True if valid Australian phone number, False otherwise
+    """
+    if not phone_number:
+        return False
+    
+    # Remove any spaces, dashes, parentheses, and other non-digit characters except +
+    cleaned = re.sub(r'[^\d+]', '', phone_number.strip())
+    
+    # Australian phone number patterns
+    patterns = [
+        r'^\+61[2-9]\d{8}$',  # +61 followed by 9 digits (mobile/landline)
+    ]
+    
+    for pattern in patterns:
+        if re.match(pattern, cleaned):
+            return True
+    
+    return False
 
 def create_phone_call(prospects):
     """
@@ -69,6 +102,12 @@ def create_phone_call(prospects):
             
             for prospect in batch_prospects:
                 prospect_name = prospect.name or "Unknown"
+                
+                # Validate phone number before adding to batch
+                if not is_valid_australian_phone(prospect.phoneNumber):
+                    logger.warning(f"Invalid phone number for {prospect_name}: {prospect.phoneNumber} - Skipping prospect")
+                    continue
+                
                 logger.info(f"Adding to batch: {prospect.phoneNumber} for {prospect_name}")
                 
                 # Create task for batch call

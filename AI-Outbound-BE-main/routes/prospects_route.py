@@ -22,14 +22,15 @@ router = APIRouter()
 
 def format_phone_number(phone_number: str) -> str:
     """
-    Format phone number by adding '+' prefix if not present.
+    Format phone number by adding '+' prefix and Australian country code if needed.
     Removes any spaces, dashes, or parentheses before adding '+'.
+    For Australian numbers, adds +61 country code based on digit count.
     
     Args:
         phone_number (str): Raw phone number from CSV
         
     Returns:
-        str: Formatted phone number with '+' prefix
+        str: Formatted phone number with '+' prefix and country code
     """
     if not phone_number:
         return phone_number
@@ -41,6 +42,20 @@ def format_phone_number(phone_number: str) -> str:
     if not cleaned.startswith('+'):
         cleaned = '+' + cleaned
     
+    # Handle Australian phone number formatting
+    # Count only digits (excluding the +)
+    digits_only = cleaned[1:] if cleaned.startswith('+') else cleaned
+    
+    # If number starts with 0, replace with +61
+    if digits_only.startswith('0'):
+        cleaned = '+61' + digits_only[1:]  # Remove the leading 0 and add +61
+    # If we have exactly 9 digits, add +61
+    elif len(digits_only) == 9:
+        cleaned = '+61' + digits_only
+    # If we have exactly 10 digits and doesn't start with 61, add +6
+    elif len(digits_only) == 10 and not digits_only.startswith('61'):
+        cleaned = '+6' + digits_only
+
     return cleaned
 
 @router.get("/demo")
