@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: telemarketing-frontend
+    name: telemarketing-frontend-static
     env: static
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
