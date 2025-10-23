@@ -36,8 +36,7 @@ def format_phone_number(phone_number: str) -> str:
     if not phone_number:
         return phone_number
     
-    if phone_number.startswith('+92'):
-        return phone_number
+    
     
     # Remove any spaces, dashes, parentheses, and other non-digit characters except +
     cleaned = re.sub(r'[^\d+]', '', phone_number.strip())
@@ -46,6 +45,9 @@ def format_phone_number(phone_number: str) -> str:
     if not cleaned.startswith('+'):
         cleaned = '+' + cleaned
     
+    if cleaned.startswith('+92'):
+        return cleaned
+
     # Handle Australian phone number formatting
     # Count only digits (excluding the +)
     digits_only = cleaned[1:] if cleaned.startswith('+') else cleaned
