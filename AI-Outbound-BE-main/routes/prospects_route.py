@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from typing import List
 from models.prospect import ProspectIn
 from services.call_initiation_service import create_phone_call
+from services.report_service import seed_rows_if_missing, update_dynamic_fields
 from services.prospect_service import (
     upload_prospects_service,
     get_prospects_by_campaign,
@@ -33,6 +34,9 @@ def format_phone_number(phone_number: str) -> str:
         str: Formatted phone number with '+' prefix and country code
     """
     if not phone_number:
+        return phone_number
+    
+    if phone_number.startswith('+92'):
         return phone_number
     
     # Remove any spaces, dashes, parentheses, and other non-digit characters except +
@@ -337,6 +341,23 @@ async def initiate_campaign_calls(request: Request):
         if not prospects_to_call:
             return {"error": "No valid prospects found for the provided phone numbers"}
         
+        # Seed report rows for this campaign (ensure all prospects exist in temp CSV)
+        try:
+            seed_rows_if_missing(
+                campaign_id=campaign_id,
+                prospects=[
+                    {
+                        "name": p.name or "",
+                        "phoneNumber": p.phoneNumber,
+                        "businessName": p.businessName or "",
+                    }
+                    for p in prospects_to_call
+                ],
+            )
+        except Exception as _e:
+            # Do not fail call initiation if reporting seed fails
+            logger.warning(f"Report seed failed for campaign {campaign_id}: {_e}")
+
         # Initiate calls for all valid prospects
         result = create_phone_call(prospects_to_call)
         
@@ -346,3 +367,39 @@ async def initiate_campaign_calls(request: Request):
         }
     except Exception as e:
         return {"error": str(e)}
+
+@router.post("/add_newowner_contact")
+async def add_newowner_contact(request: Request):
+    """
+    Explicitly update Retell-provided fields for a prospect row in the temporary report.
+    Payload JSON:
+      - campaignId: string (required)
+      - phoneNumber: string (required)
+      - newOwnerName: string (optional)
+      - newNumber: string (optional)
+      - bestTimeToCall: string (optional)
+    """
+    try:
+        data = await request.json()
+        campaign_id = data.get("campaignId")
+        phone_number = data.get("phoneNumber")
+        new_owner_name = data.get("newOwnerName")
+        new_number = data.get("newNumber")
+        best_time_to_call = data.get("bestTimeToCall")
+
+        if not campaign_id or not phone_number:
+            raise HTTPException(status_code=400, detail="campaignId and phoneNumber are required")
+
+        update_dynamic_fields(
+            campaign_id=campaign_id,
+            phone_number=phone_number,
+            new_owner_name=new_owner_name,
+            new_number=new_number,
+            best_time_to_call=best_time_to_call,
+        )
+
+        return {"success": True, "message": "Retell fields updated"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating Retell fields: {str(e)}")
