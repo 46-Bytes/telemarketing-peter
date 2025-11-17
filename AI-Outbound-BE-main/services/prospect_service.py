@@ -4,6 +4,7 @@ from models.prospect import ProspectIn
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
 import logging
+import random
 from models.token_model import TokenStore
 from bson import ObjectId
 from utils.timezone import get_brisbane_now
@@ -57,6 +58,7 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
                             "callBackCount": 0,
                             "isCallBack": None,
                             "callBackDate": None,
+							"callBackTime": None,
                             "isEbook": None,
                             "updatedAt": {"$date": current_time},
                             "appointment": {
@@ -117,6 +119,7 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
                     "callBackCount": 0,
                     "isCallBack": None,
                     "callBackDate": None,
+					"callBackTime": None,
                     "isEbook": None,
                     "isNewsletterSent": None,
                     "scheduledCallDate": scheduled_call_date,
@@ -288,9 +291,11 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         # Handle callback date
         call_back_request = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('call_back_request')
         new_call_back_date = None
+        new_call_back_time = None
         
         # Get the callback date from analysis
         analysis_callback_date = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('call_back_date', '')
+        analysis_callback_time = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('call_back_time', '')
 
         if call_back_request is True and analysis_callback_date:
             # Validate if the date is in YYYY-MM-DD format
@@ -300,26 +305,38 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             except ValueError:
                 # If date format is invalid, set to tomorrow
                 new_call_back_date = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
+            # Optional time (HH:MM 24h)
+            if isinstance(analysis_callback_time, str) and len(analysis_callback_time) in (4,5):
+                new_call_back_time = analysis_callback_time
         elif call_back_request is None:
-            # If call not picked up, set to tomorrow
+            # If call not picked up, set to tomorrow with random time (10 AM - 7 PM)
             new_call_back_date  = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
+            # Generate random time between 10:00 and 18:59 (business hours)
+            random_hour = random.randint(10, 18)
+            random_minute = random.randint(0, 59)
+            new_call_back_time = f"{random_hour:02d}:{random_minute:02d}"
         elif call_back_request is False:
             # If user explicitly doesn't want a callback
             new_call_back_date = None
+            new_call_back_time = None
 
         if existing_prospect:
             existing_is_callback = existing_prospect.get('isCallBack')
             existing_callback_date = existing_prospect.get('callBackDate')
+            existing_callback_time = existing_prospect.get('callBackTime')
             
             # Only update if current values are None/False or if we have a new valid callback request
             if (existing_is_callback is None or existing_is_callback is False) or call_back_request is True:
                 call_back_date = new_call_back_date
+                call_back_time = new_call_back_time if new_call_back_time is not None else existing_callback_time
                 is_callback = call_back_request
             else:
                 call_back_date = existing_callback_date
+                call_back_time = existing_callback_time
                 is_callback = existing_is_callback
         else:
             call_back_date = new_call_back_date
+            call_back_time = new_call_back_time
             is_callback = call_back_request
 
         # Handle ebook
@@ -361,6 +378,7 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             "status": prospect_status,
             "isCallBack": is_callback,
             "callBackDate": call_back_date,
+		    "callBackTime": call_back_time,
             "appointment": appointment_info,
             "updatedAt": {"$date": get_brisbane_now().isoformat() + "Z"},
             "isEbook": is_ebook,

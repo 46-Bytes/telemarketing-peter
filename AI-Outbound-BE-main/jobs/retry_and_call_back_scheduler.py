@@ -3,6 +3,7 @@ from services.prospect_service import get_prospects_collection
 from services.call_initiation_service import create_phone_call
 from models.prospect import ProspectIn
 import logging
+from utils.timezone import get_brisbane_date, get_brisbane_time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -13,8 +14,9 @@ def get_prospects_for_callback():
     try:
         collection = get_prospects_collection()
         
-        # Get current date in YYYY/MM/DD format
-        current_date = datetime.utcnow().strftime("%Y-%m-%d")
+        # Brisbane-local date and time
+        current_date = get_brisbane_date()
+        current_time_hm = get_brisbane_time()
         
         # Query to find prospects that need callback
         query = {
@@ -22,6 +24,7 @@ def get_prospects_for_callback():
                 {"retryCount": {"$gt": 0, "$lt": 4}},
                 {"status": {"$ne": "new"}},
                 {"callBackCount": {"$lt" : 3}},
+                {"isCallBack": True},
                 {
                     "$or": [
                         {"callBackDate": {"$eq": current_date}}
@@ -30,7 +33,25 @@ def get_prospects_for_callback():
             ]
         }
 
-        prospects = list(collection.find(query))
+        candidates = list(collection.find(query))
+
+        # Apply time filter: if callBackTime exists (HH:MM), only include when time <= now
+        prospects = []
+        for p in candidates:
+            cb_time = p.get("callBackTime")
+            if cb_time and isinstance(cb_time, str) and len(cb_time) in (4, 5):
+                try:
+                    parts = cb_time.split(":")
+                    if len(parts[0]) == 1:
+                        cb_time_norm = f"0{parts[0]}:{parts[1]}"
+                    else:
+                        cb_time_norm = cb_time
+                    if cb_time_norm <= current_time_hm:
+                        prospects.append(p)
+                except Exception:
+                    prospects.append(p)
+            else:
+                prospects.append(p)
 
         logger.info(f"Found {len(prospects)} prospects for callback  245")
         return prospects
@@ -56,7 +77,11 @@ def schedule_callbacks():
                 phoneNumber=prospect["phoneNumber"],
                 businessName=prospect["businessName"],
                 ownerName=prospect.get("ownerName", ""),
-                # scheduledCallDate=datetime.fromisoformat(prospect["scheduledCallDate"].replace("Z", "+00:00"))
+                campaignId=prospect.get("campaignId"),
+                campaignName=prospect.get("campaignName"),
+                isCallBack=True,
+                callBackDate=prospect.get("callBackDate"),
+                callBackTime=prospect.get("callBackTime"),
             ) for prospect in prospects
         ]
 

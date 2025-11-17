@@ -113,6 +113,32 @@ def create_phone_call(prospects):
                 logger.info(f"Adding to batch: {prospect.phoneNumber} for {prospect_name}")
                 
                 # Create task for batch call
+                # If this is a callback, include latest transcript/summary for context
+                previous_transcript = None
+                previous_summary = None
+                is_callback_flag = False
+                try:
+                    db_prospect = collection.find_one({"phoneNumber": prospect.phoneNumber, "campaignId": getattr(prospect, "campaignId", None)})
+                    is_callback_flag = getattr(prospect, "isCallBack", None)
+                    if db_prospect:
+                        if is_callback_flag is None:
+                            is_callback_flag = db_prospect.get("isCallBack")
+                        if is_callback_flag is True:
+                            calls = db_prospect.get("calls", [])
+                            if isinstance(calls, list) and len(calls) > 0:
+                                latest_call = calls[-1]
+                                previous_transcript = latest_call.get("transcript")
+                                previous_summary = latest_call.get("callSummary")
+                except Exception as _cb_e:
+                    logger.warning(f"Could not enrich callback context for {prospect.phoneNumber}: {_cb_e}")
+
+                # Convert is_callback_flag to string (API requires string, not boolean)
+                is_callback_str = "true" if is_callback_flag is True else "false"
+                
+                # Ensure previous_transcript and previous_summary are strings (API requires strings, not None)
+                previous_transcript_str = previous_transcript if previous_transcript is not None else ""
+                previous_summary_str = previous_summary if previous_summary is not None else ""
+
                 task = {
                     "to_number": prospect.phoneNumber,
                     "retell_llm_dynamic_variables": {
@@ -120,7 +146,10 @@ def create_phone_call(prospects):
                         "business_name": prospect.businessName,
                         "owner_name": prospect.ownerName,
                         "phoneNumber": prospect.phoneNumber,
-                        "campaign_id": prospect.campaignId
+                        "campaign_id": prospect.campaignId,
+                        "is_callback": is_callback_str,
+                        "previous_transcript": previous_transcript_str,
+                        "previous_summary": previous_summary_str
                     }
                 }
                 tasks.append(task)

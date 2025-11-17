@@ -14,3 +14,7 @@ class ProspectIn(BaseModel):
     campaignId: Optional[str] = None
     campaignName: Optional[str] = None  # Keep for backward compatibility  
     scheduledCallTime: Optional[str] = None
+    # Optional fields that might be populated for callback scheduling/context
+    isCallBack: Optional[bool] = None
+    callBackDate: Optional[str] = None
+    callBackTime: Optional[str] = None
