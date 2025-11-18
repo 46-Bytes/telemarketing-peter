@@ -491,40 +491,40 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                 except ValueError:
                     pass
 
-        # Update report CSV with connection and outcome
-        try:
-            # Only update connection/outcome here; dynamic fields are set via explicit route
-            analysis = call_data.get('call_analysis', {}).get('custom_analysis_data', {})
-            call_connection = mapped_status
-            explicit_outcome = analysis.get('call_outcome')
-            call_outcome = explicit_outcome
-            if not call_outcome:
-                summary = (analysis.get('call_summary_info') or '')
-                lower = summary.lower()
-                if 'no interest' in lower:
-                    call_outcome = 'no interest'
-                elif 'ebook' in lower:
-                    call_outcome = 'interested in ebook'
-                elif 'meeting' in lower or 'appointment' in lower:
-                    call_outcome = 'meeting booked'
-                elif 'hung up' in lower:
-                    call_outcome = 'user hung up'
-                else:
-                    call_outcome = mapped_status
+        # # Update report CSV with connection and outcome
+        # try:
+        #     # Only update connection/outcome here; dynamic fields are set via explicit route
+        #     analysis = call_data.get('call_analysis', {}).get('custom_analysis_data', {})
+        #     call_connection = mapped_status
+        #     explicit_outcome = analysis.get('call_outcome')
+        #     call_outcome = explicit_outcome
+        #     if not call_outcome:
+        #         summary = (analysis.get('call_summary_info') or '')
+        #         lower = summary.lower()
+        #         if 'no interest' in lower:
+        #             call_outcome = 'no interest'
+        #         elif 'ebook' in lower:
+        #             call_outcome = 'interested in ebook'
+        #         elif 'meeting' in lower or 'appointment' in lower:
+        #             call_outcome = 'meeting booked'
+        #         elif 'hung up' in lower:
+        #             call_outcome = 'user hung up'
+        #         else:
+        #             call_outcome = mapped_status
 
-            if campaign_id:
-                update_outcome_fields(campaign_id, to_number, call_connection, call_outcome)
+        #     if campaign_id:
+        #         update_outcome_fields(campaign_id, to_number, call_connection, call_outcome)
 
-                # Finalize/email if all outcomes complete; leave dynamic fields untouched
-                try:
-                    if are_all_outcomes_complete(campaign_id):
-                        recipient = os.getenv('REPORT_RECIPIENT_EMAIL') or os.getenv('SMTP_USER_EMAIL')
-                        if recipient:
-                            finalize_and_send(campaign_id, recipient, subject=f"Campaign {campaign_id} Report")
-                except Exception as _e:
-                    logger.warning(f"Finalize/email skipped for campaign {campaign_id}: {_e}")
-        except Exception as _e:
-            logger.warning(f"Report update skipped for {to_number}: {_e}")
+        #         # Finalize/email if all outcomes complete; leave dynamic fields untouched
+        #         try:
+        #             if are_all_outcomes_complete(campaign_id):
+        #                 recipient = os.getenv('REPORT_RECIPIENT_EMAIL') or os.getenv('SMTP_USER_EMAIL')
+        #                 if recipient:
+        #                     finalize_and_send(campaign_id, recipient, subject=f"Campaign {campaign_id} Report")
+        #         except Exception as _e:
+        #             logger.warning(f"Finalize/email skipped for campaign {campaign_id}: {_e}")
+        # except Exception as _e:
+        #     logger.warning(f"Report update skipped for {to_number}: {_e}")
 
         logger.info(f"Successfully updated prospect call information for phone number: {to_number}")
         return {"message": "Prospect call information updated successfully"}

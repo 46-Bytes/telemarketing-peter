@@ -89,23 +89,23 @@ def process_scheduled_calls():
             ) for prospect in prospects_to_call
         ]
 
-        # Seed reporting rows for this campaign before initiating calls
-        try:
-            if prospect_objects:
-                campaign_id = prospect_objects[0].campaignId or "unknown"
-                seed_rows_if_missing(
-                    campaign_id=campaign_id,
-                    prospects=[
-                        {
-                            "name": p.name or "",
-                            "phoneNumber": p.phoneNumber,
-                            "businessName": p.businessName or "",
-                        }
-                        for p in prospect_objects
-                    ],
-                )
-        except Exception as _e:
-            logger.warning(f"Report seed failed for scheduled campaign: {_e}")
+        # # Seed reporting rows for this campaign before initiating calls
+        # try:
+        #     if prospect_objects:
+        #         campaign_id = prospect_objects[0].campaignId or "unknown"
+        #         seed_rows_if_missing(
+        #             campaign_id=campaign_id,
+        #             prospects=[
+        #                 {
+        #                     "name": p.name or "",
+        #                     "phoneNumber": p.phoneNumber,
+        #                     "businessName": p.businessName or "",
+        #                 }
+        #                 for p in prospect_objects
+        #             ],
+        #         )
+        # except Exception as _e:
+        #     logger.warning(f"Report seed failed for scheduled campaign: {_e}")
 
         # Initiate calls
         logger.info(f"@@@@ --Scheduled Calls------  Initiating scheduled calls for {len(prospect_objects)} prospects")

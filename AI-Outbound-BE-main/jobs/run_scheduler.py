@@ -16,7 +16,7 @@ def run_scheduler():
         # schedule.every().day.at("09:00").do(process_scheduled_calls)
         
         # Schedule callbacks to run every hour
-        # schedule.every(1).minutes.do(schedule_callbacks)
+        schedule.every(1).minutes.do(schedule_callbacks)
         # schedule.every().hour.do(schedule_callbacks)
         
         # Schedule newsletter to run on the first day of every month at 10 
