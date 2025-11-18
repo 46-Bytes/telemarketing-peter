@@ -343,22 +343,22 @@ async def initiate_campaign_calls(request: Request):
         if not prospects_to_call:
             return {"error": "No valid prospects found for the provided phone numbers"}
         
-        # Seed report rows for this campaign (ensure all prospects exist in temp CSV)
-        try:
-            seed_rows_if_missing(
-                campaign_id=campaign_id,
-                prospects=[
-                    {
-                        "name": p.name or "",
-                        "phoneNumber": p.phoneNumber,
-                        "businessName": p.businessName or "",
-                    }
-                    for p in prospects_to_call
-                ],
-            )
-        except Exception as _e:
-            # Do not fail call initiation if reporting seed fails
-            logger.warning(f"Report seed failed for campaign {campaign_id}: {_e}")
+        # # Seed report rows for this campaign (ensure all prospects exist in temp CSV)
+        # try:
+        #     seed_rows_if_missing(
+        #         campaign_id=campaign_id,
+        #         prospects=[
+        #             {
+        #                 "name": p.name or "",
+        #                 "phoneNumber": p.phoneNumber,
+        #                 "businessName": p.businessName or "",
+        #             }
+        #             for p in prospects_to_call
+        #         ],
+        #     )
+        # except Exception as _e:
+        #     # Do not fail call initiation if reporting seed fails
+        #     logger.warning(f"Report seed failed for campaign {campaign_id}: {_e}")
 
         # Initiate calls for all valid prospects
         result = create_phone_call(prospects_to_call)
@@ -370,38 +370,38 @@ async def initiate_campaign_calls(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
-@router.post("/add_newowner_contact")
-async def add_newowner_contact(request: Request):
-    """
-    Explicitly update Retell-provided fields for a prospect row in the temporary report.
-    Payload JSON:
-      - campaignId: string (required)
-      - phoneNumber: string (required)
-      - newOwnerName: string (optional)
-      - newNumber: string (optional)
-      - bestTimeToCall: string (optional)
-    """
-    try:
-        data = await request.json()
-        campaign_id = data.get("campaignId")
-        phone_number = data.get("phoneNumber")
-        new_owner_name = data.get("newOwnerName")
-        new_number = data.get("newNumber")
-        best_time_to_call = data.get("bestTimeToCall")
+# @router.post("/add_newowner_contact")
+# async def add_newowner_contact(request: Request):
+#     """
+#     Explicitly update Retell-provided fields for a prospect row in the temporary report.
+#     Payload JSON:
+#       - campaignId: string (required)
+#       - phoneNumber: string (required)
+#       - newOwnerName: string (optional)
+#       - newNumber: string (optional)
+#       - bestTimeToCall: string (optional)
+#     """
+#     try:
+#         data = await request.json()
+#         campaign_id = data.get("campaignId")
+#         phone_number = data.get("phoneNumber")
+#         new_owner_name = data.get("newOwnerName")
+#         new_number = data.get("newNumber")
+#         best_time_to_call = data.get("bestTimeToCall")
 
-        if not campaign_id or not phone_number:
-            raise HTTPException(status_code=400, detail="campaignId and phoneNumber are required")
+#         if not campaign_id or not phone_number:
+#             raise HTTPException(status_code=400, detail="campaignId and phoneNumber are required")
 
-        update_dynamic_fields(
-            campaign_id=campaign_id,
-            phone_number=phone_number,
-            new_owner_name=new_owner_name,
-            new_number=new_number,
-            best_time_to_call=best_time_to_call,
-        )
+#         update_dynamic_fields(
+#             campaign_id=campaign_id,
+#             phone_number=phone_number,
+#             new_owner_name=new_owner_name,
+#             new_number=new_number,
+#             best_time_to_call=best_time_to_call,
+#         )
 
-        return {"success": True, "message": "Retell fields updated"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error updating Retell fields: {str(e)}")
+#         return {"success": True, "message": "Retell fields updated"}
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Error updating Retell fields: {str(e)}")
