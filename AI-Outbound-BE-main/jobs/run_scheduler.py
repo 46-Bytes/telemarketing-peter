@@ -22,7 +22,7 @@ def run_scheduler():
         # schedule.every().hour.do(schedule_callbacks)
         
         # Schedule auto-retries to run every 10 minutes (for not-connected calls)
-        # schedule.every(1).minutes.do(asyncio.run(process_auto_retries()))
+        schedule.every(1).minutes.do(lambda: asyncio.run(process_auto_retries()))
         # schedule.every(10).minutes.do(process_auto_retries)
         
         # Schedule newsletter to run on the first day of every month at 10 
