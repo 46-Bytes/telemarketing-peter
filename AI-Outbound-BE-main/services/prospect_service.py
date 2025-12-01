@@ -2,7 +2,7 @@ from config.database import get_prospects_collection
 import os
 from models.prospect import ProspectIn
 from typing import List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import random
 from models.token_model import TokenStore
@@ -65,6 +65,12 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
                                 "appointmentInterest": None,
                                 "appointmentDateTime": None,
                             },
+                            # Reset auto-retry fields when re-uploading prospect
+                            "autoRetryCount": 0,
+                            "autoRetryScheduledDate": None,
+                            "autoRetryScheduledTime": None,
+                            "autoRetryAttempts": [],
+                            "autoRetryFailureEmailSent": False,
                         }
                     }
                 )
@@ -134,6 +140,12 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
                     },
                     "calls": [],
                     "auditLogs": [],
+                    # Auto-retry fields for handling not-connected calls
+                    "autoRetryCount": 0,
+                    "autoRetryScheduledDate": None,
+                    "autoRetryScheduledTime": None,
+                    "autoRetryAttempts": [],
+                    "autoRetryFailureEmailSent": False,
                 })
                 logger.info(f"Created new prospect with phone: {prospect.phoneNumber}, campaign: {prospect_campaign}")
             except Exception as e:
@@ -145,6 +157,7 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
     }
 
 from services.report_service import update_outcome_fields, update_dynamic_fields, are_all_outcomes_complete, finalize_and_send
+from services.auto_retry_service import schedule_auto_retry, reset_auto_retry_fields_on_success
 
 
 async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
@@ -165,7 +178,7 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             mapped_status = call_status
             
         call_info = {
-            "timestamp": datetime.fromtimestamp(call_data.get('start_timestamp', 0) / 1000).isoformat() + "Z",
+            "timestamp": datetime.fromtimestamp(call_data.get('start_timestamp', 0) / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z'),
             "duration": call_data.get('duration_ms', 0) / 1000,
             "status": mapped_status,
             "recordingUrl": call_data.get('recording_url'),
@@ -525,6 +538,44 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         #             logger.warning(f"Finalize/email skipped for campaign {campaign_id}: {_e}")
         # except Exception as _e:
         #     logger.warning(f"Report update skipped for {to_number}: {_e}")
+
+        # Handle automatic retry logic for not connected calls
+        # Call statuses that indicate "not connected": busy, no_answer, voicemail, not_connected
+        not_connected_statuses = ['busy', 'no_answer', 'voicemail', 'not_connected', 'user_busy', 'machine']
+        
+        if call_status in not_connected_statuses or mapped_status in not_connected_statuses:
+            logger.info(f"Call not connected for {to_number} (status: {call_status}). Checking auto-retry eligibility...")
+            
+            # Check if this is an auto-retry call or user-requested callback
+            # Only schedule auto-retries for:
+            # 1. New prospects (not user-requested callbacks)
+            # 2. Prospects who haven't exhausted retries
+            existing_prospect = collection.find_one({
+                "phoneNumber": to_number,
+                "campaignId": campaign_id
+            })
+            
+            if existing_prospect:
+                # Don't schedule auto-retry if user explicitly requested a callback (we have a different scheduler for that)
+                is_user_callback = existing_prospect.get("isCallBack") is True and call_back_request is True
+                
+                if not is_user_callback:
+                    # This is a not-connected call that should be auto-retried
+                    call_timestamp = call_info.get('timestamp')
+                    schedule_auto_retry(
+                        phone_number=to_number,
+                        campaign_id=campaign_id,
+                        call_status=mapped_status,
+                        call_timestamp=call_timestamp
+                    )
+        
+        # If call was picked up successfully, reset auto-retry fields
+        elif call_status == "ended" or prospect_status == "picked_up":
+            logger.info(f"Call picked up for {to_number}. Resetting auto-retry fields if any...")
+            reset_auto_retry_fields_on_success(
+                phone_number=to_number,
+                campaign_id=campaign_id
+            )
 
         logger.info(f"Successfully updated prospect call information for phone number: {to_number}")
         return {"message": "Prospect call information updated successfully"}

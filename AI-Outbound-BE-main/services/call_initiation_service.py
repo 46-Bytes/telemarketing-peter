@@ -48,7 +48,7 @@ def is_valid_number(phone_number: str) -> bool:
     
     return False
 
-def create_phone_call(prospects):
+async def create_phone_call(prospects):
     """
     Initiate phone calls to prospects using batch calls for efficiency
     
@@ -129,6 +129,7 @@ def create_phone_call(prospects):
                                 latest_call = calls[-1]
                                 previous_transcript = latest_call.get("transcript")
                                 previous_summary = latest_call.get("callSummary")
+                                logger.info(f"Previous transcript: {previous_transcript}")
                 except Exception as _cb_e:
                     logger.warning(f"Could not enrich callback context for {prospect.phoneNumber}: {_cb_e}")
 

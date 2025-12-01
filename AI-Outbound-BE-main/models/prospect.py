@@ -18,3 +18,7 @@ class ProspectIn(BaseModel):
     isCallBack: Optional[bool] = None
     callBackDate: Optional[str] = None
     callBackTime: Optional[str] = None
+    # Auto-retry fields for handling not-connected calls
+    autoRetryCount: Optional[int] = None
+    autoRetryScheduledDate: Optional[str] = None
+    autoRetryScheduledTime: Optional[str] = None

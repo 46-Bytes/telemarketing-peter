@@ -60,7 +60,7 @@ def get_prospects_for_callback():
         logger.error(f"Error fetching prospects for callback: {str(e)}")
         raise
 
-def schedule_callbacks():
+async def schedule_callbacks():
     """Main function to schedule callbacks for prospects"""
     try:
         # Get prospects that need callback
@@ -87,7 +87,7 @@ def schedule_callbacks():
 
         # Initiate calls
         logger.info(f"@@@@ -- call Scheduler------  Initiating calls for {len(prospect_objects)} prospects")
-        create_phone_call(prospect_objects)
+        await create_phone_call(prospect_objects)
 
     except Exception as e:
         logger.error(f"Error in schedule_callbacks: {str(e)}")

@@ -277,7 +277,7 @@ async def initiate_call(request: Request):
         print(f"prospect_obj: {prospect_obj}")
         # Initiate the call
         try:
-            result = create_phone_call([prospect_obj])
+            result = await create_phone_call([prospect_obj])
             
             # return {
             #     "status": "success",
@@ -361,7 +361,7 @@ async def initiate_campaign_calls(request: Request):
         #     logger.warning(f"Report seed failed for campaign {campaign_id}: {_e}")
 
         # Initiate calls for all valid prospects
-        result = create_phone_call(prospects_to_call)
+        result = await create_phone_call(prospects_to_call)
         
         return {
             "success": True, 
