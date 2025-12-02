@@ -230,7 +230,7 @@ def send_retry_failure_email(prospect: Dict):
         # Get SMTP credentials
         smtp_user = os.getenv("SMTP_USER_EMAIL")
         smtp_password = os.getenv("SMTP_PASSWORD")
-        recipient_email = os.getenv("REPORT_RECIPIENT_EMAIL") or smtp_user
+        recipient_email = os.getenv("REPORT_RECIPIENT_EMAIL") or "zohaib.aamer@nuclieos.com"
         
         if not smtp_user or not smtp_password:
             logger.error("SMTP credentials not configured")
@@ -376,7 +376,7 @@ def get_prospects_for_auto_retry() -> List[Dict]:
         # Query to find prospects scheduled for auto-retry
         query = {
             "$and": [
-                {"autoRetryCount": {"$gt": 0, "$lte": 3}},  # Has retries scheduled (1-3)
+                {"autoRetryCount": {"$gt": 0, "$lt": 3}},  # Has retries scheduled (1-3)
                 {"autoRetryScheduledDate": current_date},  # Scheduled for today
                 {"status": {"$ne": "picked_up"}},  # Not picked up yet
                 {
@@ -396,7 +396,7 @@ def get_prospects_for_auto_retry() -> List[Dict]:
         
         candidates = list(collection.find(query))
         
-        # Filter by time - only include prospects whose scheduled time has passed
+        # Filter by time - only include prospects whose scheduled time exactly matches current time
         prospects = []
         for p in candidates:
             scheduled_time = p.get("autoRetryScheduledTime")
@@ -410,18 +410,18 @@ def get_prospects_for_auto_retry() -> List[Dict]:
                         else:
                             scheduled_time_norm = scheduled_time
                         
-                        # Only include if current time >= scheduled time
-                        if current_time >= scheduled_time_norm:
+                        # Only include if current time exactly matches scheduled time
+                        if current_time == scheduled_time_norm:
                             prospects.append(p)
-                            logger.info(f"Auto-retry due for {p.get('phoneNumber')} - scheduled at {scheduled_time_norm}")
+                            logger.info(f"Auto-retry due for {p.get('phoneNumber')} - scheduled at {scheduled_time_norm}, current time {current_time}")
                         else:
-                            logger.debug(f"Auto-retry not yet due for {p.get('phoneNumber')} - scheduled at {scheduled_time_norm}, current time {current_time}")
+                            logger.debug(f"Auto-retry not due for {p.get('phoneNumber')} - scheduled at {scheduled_time_norm}, current time {current_time}")
                 except Exception as e:
                     logger.warning(f"Error parsing scheduled time for prospect {p.get('phoneNumber')}: {str(e)}")
-                    prospects.append(p)  # Include if we can't parse time
+                    # Don't include if we can't parse time
             else:
-                # No time specified, include it
-                prospects.append(p)
+                # No time specified, don't include it
+                logger.debug(f"Skipping prospect {p.get('phoneNumber')} - no autoRetryScheduledTime set")
         
         logger.info(f"Found {len(prospects)} prospects due for auto-retry")
         return prospects
