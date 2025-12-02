@@ -58,7 +58,7 @@ def calculate_next_retry_time(retry_count: int, last_call_time: datetime) -> Dic
             next_retry_time = last_call_time + timedelta(hours=1)
             
             # Check if next retry time is before 5pm (17:00) on the same day
-            if next_retry_time.hour < 17:
+            if next_retry_time.hour < 17 and next_retry_time.hour > 10:
                 return {
                     "date": next_retry_time.strftime("%Y-%m-%d"),
                     "time": next_retry_time.strftime("%H:%M")
