@@ -33,7 +33,7 @@ def is_within_call_hours():
     current_time = get_brisbane_now()
     logger.info(f"Current Brisbane time: {current_time}")
     logger.info(f"Current hour: {current_time.hour}")
-    return 10 <= current_time.hour < 19
+    return 8 <= current_time.hour < 18
 
 def format_brisbane_datetime(dt_string):
     """Convert datetime string to Brisbane timezone and format for display"""
