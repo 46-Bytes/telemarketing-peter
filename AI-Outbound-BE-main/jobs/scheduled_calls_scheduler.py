@@ -67,7 +67,7 @@ async def process_scheduled_calls():
             scheduled_time = prospect.get("scheduledCallTime", "")
             logger.info(f"Prospect scheduled time: {scheduled_time}, Current time: {current_time}")
             # If scheduledCallTime matches current time or is empty (backward compatibility)
-            if not scheduled_time or scheduled_time == current_time:
+            if scheduled_time == current_time:
                 prospects_to_call.append(prospect)
         
         if not prospects_to_call:
