@@ -44,9 +44,9 @@ async def process_scheduled_calls():
         logger.info(f"Brisbane timezone info: {tz_info}")
         
         # Check if current time is within allowed call hours in Brisbane timezone
-        if not is_within_call_hours():
-            logger.info("Current time in Brisbane is outside of allowed call hours (10 AM to 7 PM). Skipping calls.")
-            return
+        # if not is_within_call_hours():
+        #     logger.info("Current time in Brisbane is outside of allowed call hours (8 AM to 6 PM). Skipping calls.")
+        #     return
 
         # Get prospects scheduled for today
         prospects = get_scheduled_prospects()
