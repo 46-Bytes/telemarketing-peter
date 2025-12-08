@@ -155,6 +155,7 @@ async def create_phone_call(prospects):
                 }
                 tasks.append(task)
                 prospect_mapping[prospect.phoneNumber] = prospect
+                logger.info(f"Task created for {prospect.phoneNumber}: {task}")
             
             try:
                 # Create batch call
