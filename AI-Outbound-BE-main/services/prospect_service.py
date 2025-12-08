@@ -398,13 +398,13 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             "isNewsletterSent": is_newsletter_sent
         }
 
-        # Only add retryCount reset and increment callBackCount if call_back_date is in YYYY-MM-DD format
-        if analysis_callback_date and isinstance(analysis_callback_date, str) and len(analysis_callback_date) == 10:
-            try:
-                datetime.strptime(analysis_callback_date, '%Y-%m-%d')
-                prospect_update_dict["retryCount"] = 1
-            except ValueError:
-                pass
+        # # Only add retryCount reset and increment callBackCount if call_back_date is in YYYY-MM-DD format
+        # if analysis_callback_date and isinstance(analysis_callback_date, str) and len(analysis_callback_date) == 10:
+        #     try:
+        #         datetime.strptime(analysis_callback_date, '%Y-%m-%d')
+        #         prospect_update_dict["retryCount"] = 1
+        #     except ValueError:
+        #         pass
 
         if batch_call_entry:
             # For batch calls, update the prospect and the call entry separately

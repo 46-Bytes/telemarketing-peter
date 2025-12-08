@@ -21,9 +21,9 @@ def get_prospects_for_callback():
         # Query to find prospects that need callback
         query = {
             "$and": [
-                {"retryCount": {"$gt": 0, "$lt": 4}},
+                # {"retryCount": {"$gt": 0, "$lt": 4}},
                 {"status": {"$ne": "new"}},
-                {"callBackCount": {"$lt" : 3}},
+                # {"callBackCount": {"$lt" : 3}},
                 {"isCallBack": True},
                 {
                     "$or": [
