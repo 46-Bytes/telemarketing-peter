@@ -22,3 +22,7 @@ class ProspectIn(BaseModel):
     autoRetryCount: Optional[int] = None
     autoRetryScheduledDate: Optional[str] = None
     autoRetryScheduledTime: Optional[str] = None
+    # New owner data fields (when contact is not the owner)
+    newOwnerName: Optional[str] = None
+    newOwnerPhone: Optional[str] = None
+    bestTimeToCall: Optional[str] = None

@@ -504,40 +504,74 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                 except ValueError:
                     pass
 
-        # # Update report CSV with connection and outcome
-        # try:
-        #     # Only update connection/outcome here; dynamic fields are set via explicit route
-        #     analysis = call_data.get('call_analysis', {}).get('custom_analysis_data', {})
-        #     call_connection = mapped_status
-        #     explicit_outcome = analysis.get('call_outcome')
-        #     call_outcome = explicit_outcome
-        #     if not call_outcome:
-        #         summary = (analysis.get('call_summary_info') or '')
-        #         lower = summary.lower()
-        #         if 'no interest' in lower:
-        #             call_outcome = 'no interest'
-        #         elif 'ebook' in lower:
-        #             call_outcome = 'interested in ebook'
-        #         elif 'meeting' in lower or 'appointment' in lower:
-        #             call_outcome = 'meeting booked'
-        #         elif 'hung up' in lower:
-        #             call_outcome = 'user hung up'
-        #         else:
-        #             call_outcome = mapped_status
+        # Update report CSV with connection and outcome
+        try:
+            # Only update connection/outcome here; dynamic fields are set via explicit route
+            analysis = call_data.get('call_analysis', {}).get('custom_analysis_data', {})
+            
+            # Determine call connection status
+            if call_status == "ended":
+                call_connection = "successful"
+            elif call_status in ["no_answer", "not_connected"]:
+                call_connection = "unsuccessful no pick up"
+            elif call_status == "voicemail":
+                call_connection = "voicemail"
+            else:
+                call_connection = mapped_status
+            
+            # Determine call outcome (only for successful connections)
+            call_outcome = ""
+            if call_connection == "successful":
+                # Check explicit outcome first
+                explicit_outcome = analysis.get('call_outcome')
+                
+                if explicit_outcome:
+                    call_outcome = explicit_outcome
+                else:
+                    # Infer from summary and other fields
+                    summary = (analysis.get('call_summary_info') or '').lower()
+                    transcript = (call_data.get('transcript') or '').lower()
+                    
+                    # Check for appointment booking
+                    if (analysis.get('appointment_interest') is True or 
+                        'meeting' in summary or 'appointment' in summary or
+                        'book' in summary):
+                        call_outcome = 'meeting booked'
+                    # Check for ebook interest
+                    elif (analysis.get('ebook') is True or 
+                          'ebook' in summary):
+                        call_outcome = 'interested in ebook'
+                    # Check for no interest
+                    elif ('no interest' in summary or 'not interested' in summary):
+                        call_outcome = 'no interest'
+                    # Check for hung up
+                    elif ('hung up' in summary or 'disconnected' in summary):
+                        call_outcome = 'user hung up'
+                    # Check if they requested callback
+                    elif analysis.get('call_back_request') is True:
+                        call_outcome = 'callback requested'
+                    else:
+                        # Default to successful if call ended normally
+                        call_outcome = 'successful'
 
-        #     if campaign_id:
-        #         update_outcome_fields(campaign_id, to_number, call_connection, call_outcome)
+            if campaign_id:
+                logger.info(f"Updating report for campaign {campaign_id}: connection={call_connection}, outcome={call_outcome}")
+                update_outcome_fields(campaign_id, to_number, call_connection, call_outcome)
 
-        #         # Finalize/email if all outcomes complete; leave dynamic fields untouched
-        #         try:
-        #             if are_all_outcomes_complete(campaign_id):
-        #                 recipient = os.getenv('REPORT_RECIPIENT_EMAIL') or os.getenv('SMTP_USER_EMAIL')
-        #                 if recipient:
-        #                     finalize_and_send(campaign_id, recipient, subject=f"Campaign {campaign_id} Report")
-        #         except Exception as _e:
-        #             logger.warning(f"Finalize/email skipped for campaign {campaign_id}: {_e}")
-        # except Exception as _e:
-        #     logger.warning(f"Report update skipped for {to_number}: {_e}")
+                # Finalize/email if all outcomes complete
+                try:
+                    if are_all_outcomes_complete(campaign_id):
+                        logger.info(f"All calls complete for campaign {campaign_id}. Sending report...")
+                        recipient = os.getenv('REPORT_RECIPIENT_EMAIL') or os.getenv('SMTP_USER_EMAIL')
+                        if recipient:
+                            finalize_and_send(campaign_id, recipient, subject=f"Campaign {campaign_id} Report")
+                            logger.info(f"Report sent successfully for campaign {campaign_id}")
+                        else:
+                            logger.warning(f"No recipient email configured for campaign {campaign_id} report")
+                except Exception as _e:
+                    logger.warning(f"Finalize/email skipped for campaign {campaign_id}: {_e}")
+        except Exception as _e:
+            logger.warning(f"Report update skipped for {to_number}: {_e}", exc_info=True)
 
         # Handle automatic retry logic for not connected calls
         # Call statuses that indicate "not connected": busy, no_answer, voicemail, not_connected

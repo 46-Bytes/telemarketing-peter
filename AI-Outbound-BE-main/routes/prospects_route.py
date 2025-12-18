@@ -370,38 +370,62 @@ async def initiate_campaign_calls(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
-# @router.post("/add_newowner_contact")
-# async def add_newowner_contact(request: Request):
-#     """
-#     Explicitly update Retell-provided fields for a prospect row in the temporary report.
-#     Payload JSON:
-#       - campaignId: string (required)
-#       - phoneNumber: string (required)
-#       - newOwnerName: string (optional)
-#       - newNumber: string (optional)
-#       - bestTimeToCall: string (optional)
-#     """
-#     try:
-#         data = await request.json()
-#         campaign_id = data.get("campaignId")
-#         phone_number = data.get("phoneNumber")
-#         new_owner_name = data.get("newOwnerName")
-#         new_number = data.get("newNumber")
-#         best_time_to_call = data.get("bestTimeToCall")
+@router.post("/add_newowner_contact")
+async def add_newowner_contact(request: Request):
+    """
+    Explicitly update Retell-provided fields for a prospect row in the temporary report.
+    Payload JSON:
+      - campaignId: string (required)
+      - phoneNumber: string (required)
+      - newOwnerName: string (optional)
+      - newNumber: string (optional)
+      - bestTimeToCall: string (optional)
+    """
+    try:
+        data = await request.json()
+        campaign_id = data.get("campaignId")
+        phone_number = data.get("phoneNumber")
+        new_owner_name = data.get("newOwnerName")
+        new_number = data.get("newNumber")
+        best_time_to_call = data.get("bestTimeToCall")
 
-#         if not campaign_id or not phone_number:
-#             raise HTTPException(status_code=400, detail="campaignId and phoneNumber are required")
+        if not campaign_id or not phone_number:
+            raise HTTPException(status_code=400, detail="campaignId and phoneNumber are required")
 
-#         update_dynamic_fields(
-#             campaign_id=campaign_id,
-#             phone_number=phone_number,
-#             new_owner_name=new_owner_name,
-#             new_number=new_number,
-#             best_time_to_call=best_time_to_call,
-#         )
+        logger.info(f"AddNewOwner called for campaign {campaign_id}, phone {phone_number}")
+        logger.info(f"New owner data - Name: {new_owner_name}, Number: {new_number}, Best time: {best_time_to_call}")
 
-#         return {"success": True, "message": "Retell fields updated"}
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Error updating Retell fields: {str(e)}")
+        # Update the report CSV with new owner data
+        update_dynamic_fields(
+            campaign_id=campaign_id,
+            phone_number=phone_number,
+            new_owner_name=new_owner_name,
+            new_number=new_number,
+            best_time_to_call=best_time_to_call,
+        )
+
+        # # Also update the prospect in MongoDB with new owner data
+        # from services.prospect_service import get_prospects_collection
+        # collection = get_prospects_collection()
+        
+        # update_data = {}
+        # if new_owner_name:
+        #     update_data["newOwnerName"] = new_owner_name
+        # if new_number:
+        #     update_data["newOwnerPhone"] = new_number
+        # if best_time_to_call:
+        #     update_data["bestTimeToCall"] = best_time_to_call
+        
+        # if update_data:
+        #     result = collection.update_one(
+        #         {"phoneNumber": phone_number, "campaignId": campaign_id},
+        #         {"$set": update_data}
+        #     )
+        #     logger.info(f"Updated prospect in MongoDB: {result.modified_count} document(s) modified")
+
+        return {"success": True, "message": "New owner data captured successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in AddNewOwner: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error updating new owner data: {str(e)}")

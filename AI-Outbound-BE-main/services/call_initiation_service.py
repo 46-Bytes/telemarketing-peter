@@ -83,6 +83,25 @@ async def create_phone_call(prospects):
             
         logger.info(f"Processing {len(valid_prospects)} prospects for batch calls")
         
+        # Initialize campaign report if campaign_id is available
+        if valid_prospects and hasattr(valid_prospects[0], 'campaignId') and valid_prospects[0].campaignId:
+            campaign_id = valid_prospects[0].campaignId
+            logger.info(f"Initializing campaign report for campaign {campaign_id}")
+            try:
+                from services.report_service import seed_rows_if_missing
+                prospects_data = [
+                    {
+                        "name": p.name or "",
+                        "phoneNumber": p.phoneNumber,
+                        "businessName": p.businessName or "",
+                    }
+                    for p in valid_prospects
+                ]
+                seed_rows_if_missing(campaign_id, prospects_data)
+                logger.info(f"Campaign report initialized for {len(prospects_data)} prospects")
+            except Exception as report_error:
+                logger.warning(f"Failed to initialize campaign report: {str(report_error)}")
+        
         # Batch size for Retell (concurrency of 15)
         BATCH_SIZE = 15
         total_batches = (len(valid_prospects) + BATCH_SIZE - 1) // BATCH_SIZE
@@ -126,10 +145,19 @@ async def create_phone_call(prospects):
                         if is_callback_flag is True:
                             calls = db_prospect.get("calls", [])
                             if isinstance(calls, list) and len(calls) > 0:
-                                latest_call = calls[-1]
-                                previous_transcript = latest_call.get("transcript")
-                                previous_summary = latest_call.get("callSummary")
-                                logger.info(f"Previous transcript: {previous_transcript}")
+                                # Find the most recent call that has a transcript (skip pending calls)
+                                # Iterate backwards to find the latest completed call with transcript
+                                for call in reversed(calls):
+                                    call_transcript = call.get("transcript")
+                                    call_summary = call.get("callSummary")
+                                    # Use the first call we find with either transcript or summary
+                                    if call_transcript or call_summary:
+                                        previous_transcript = call_transcript
+                                        previous_summary = call_summary
+                                        logger.info(f"Found previous call context for callback - transcript length: {len(call_transcript) if call_transcript else 0}, summary: {call_summary[:100] if call_summary else 'None'}...")
+                                        break
+                                if not previous_transcript and not previous_summary:
+                                    logger.warning(f"No previous transcript or summary found for callback to {prospect.phoneNumber}")
                 except Exception as _cb_e:
                     logger.warning(f"Could not enrich callback context for {prospect.phoneNumber}: {_cb_e}")
 
