@@ -283,6 +283,7 @@ def get_prospects_summary(user_id=None):
     "status": 1,
     "userId": 1,
     "campaignName": 1,
+    "email": 1,
     "_id": 0,
     "scheduledCallDate": 1
 }))
