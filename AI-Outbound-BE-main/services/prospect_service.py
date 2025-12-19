@@ -321,13 +321,13 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             # Optional time (HH:MM 24h)
             if isinstance(analysis_callback_time, str) and len(analysis_callback_time) in (4,5):
                 new_call_back_time = analysis_callback_time
-        elif call_back_request is None:
-            # If call not picked up, set to tomorrow with random time (10 AM - 7 PM)
-            new_call_back_date  = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
-            # Generate random time between 10:00 and 18:59 (business hours)
-            random_hour = random.randint(10, 18)
-            random_minute = random.randint(0, 59)
-            new_call_back_time = f"{random_hour:02d}:{random_minute:02d}"
+        # elif call_back_request is None:
+        #     # If call not picked up, set to tomorrow with random time (10 AM - 7 PM)
+        #     new_call_back_date  = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
+        #     # Generate random time between 10:00 and 18:59 (business hours)
+        #     random_hour = random.randint(10, 18)
+        #     random_minute = random.randint(0, 59)
+        #     new_call_back_time = f"{random_hour:02d}:{random_minute:02d}"
         elif call_back_request is False:
             # If user explicitly doesn't want a callback
             new_call_back_date = None
@@ -386,7 +386,7 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             
         # Create update dictionary for prospect-level fields
         prospect_update_dict = {
-            "scheduledCallDate": new_call_back_date,
+            # "scheduledCallDate": new_call_back_date,
             "email": email,
             "status": prospect_status,
             "isCallBack": is_callback,

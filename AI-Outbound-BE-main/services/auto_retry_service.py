@@ -357,7 +357,7 @@ def send_retry_failure_email(prospect: Dict):
         logger.error(f"Error sending retry failure email: {str(e)}")
 
 
-def get_prospects_for_auto_retry() -> List[Dict]:
+def  get_prospects_for_auto_retry() -> List[Dict]:
     """
     Fetch prospects that are due for automatic retry based on scheduled date/time.
     
@@ -379,12 +379,12 @@ def get_prospects_for_auto_retry() -> List[Dict]:
                 {"autoRetryCount": {"$gt": 0, "$lt": 3}},  # Has retries scheduled (1-3)
                 {"autoRetryScheduledDate": current_date},  # Scheduled for today
                 {"status": {"$ne": "picked_up"}},  # Not picked up yet
-                {
-                    "$or": [
-                        {"isCallBack": {"$ne": False}},  # User hasn't declined callback
-                        {"isCallBack": None}  # No callback preference set
-                    ]
-                },
+                # {
+                #     "$or": [
+                #         {"isCallBack": {"$ne": False}},  # User hasn't declined callback
+                #         {"isCallBack": None}  # No callback preference set
+                #     ]
+                # },
                 {
                     "$or": [
                         {"appointment.appointmentInterest": {"$ne": True}},  # No appointment
