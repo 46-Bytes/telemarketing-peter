@@ -58,7 +58,7 @@ def get_prospects_for_callback():
                     # Don't add prospects with invalid time formats to avoid unintended calls
             else:
                 # If no callback time specified, include the prospect (backward compatibility)
-                prospects.append(p)
+                # prospects.append(p)
                 logger.info(f"✓ Callback without specific time - Prospect: {p.get('name', 'Unknown')}, Phone: {p.get('phoneNumber', 'N/A')}")
 
         logger.info(f"Found {len(prospects)} prospects for callback")
