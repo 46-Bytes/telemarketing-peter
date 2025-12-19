@@ -230,7 +230,7 @@ def send_retry_failure_email(prospect: Dict):
         # Get SMTP credentials
         smtp_user = os.getenv("SMTP_USER_EMAIL")
         smtp_password = os.getenv("SMTP_PASSWORD")
-        recipient_email = os.getenv("REPORT_RECIPIENT_EMAIL") or "zohaib.aamer@nuclieos.com"
+        recipient_email = os.getenv("REPORT_RECIPIENT_EMAIL")
         
         if not smtp_user or not smtp_password:
             logger.error("SMTP credentials not configured")
