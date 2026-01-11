@@ -4,6 +4,8 @@ from services.send_ebook_service import send_ebook_email
 import logging
 from bson import ObjectId
 from pymongo.errors import PyMongoError
+from config.database import get_users_collection, get_campaign_users_collection
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,7 +28,6 @@ async def send_ebook(request: Request):
         logger.info(f"Campaign ID: {campaign_id}")
         
         # Retrieve ebook path from database
-        from config.database import get_users_collection, get_campaign_users_collection
         users = get_users_collection()
         
         campaign_users = get_campaign_users_collection()

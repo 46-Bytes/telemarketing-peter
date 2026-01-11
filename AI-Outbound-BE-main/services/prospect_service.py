@@ -172,7 +172,10 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         disconnection_reason = call_data.get('disconnection_reason')
         
         # Map call status to our internal status
-        if call_status == "error" and disconnection_reason:
+        # If disconnection_reason is "voicemail_reached", treat it as voicemail (not connected)
+        if disconnection_reason == "voicemail_reached":
+            mapped_status = "voicemail"
+        elif call_status == "error" and disconnection_reason:
             mapped_status = disconnection_reason
         else:
             mapped_status = call_status
@@ -377,7 +380,10 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
 
         # Map call status to prospect status
         call_status = call_data.get('call_status', 'unknown')
-        if call_status == "ended":
+        # If disconnection_reason is "voicemail_reached", treat as not picked up
+        if disconnection_reason == "voicemail_reached":
+            prospect_status = "contacted"
+        elif call_status == "ended":
             prospect_status = "picked_up"
         elif call_status in ["busy", "no_answer", "voicemail"]:
             prospect_status = "contacted"
@@ -510,7 +516,10 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             analysis = call_data.get('call_analysis', {}).get('custom_analysis_data', {})
             
             # Determine call connection status
-            if call_status == "ended":
+            # Check disconnection_reason first for voicemail_reached
+            if disconnection_reason == "voicemail_reached":
+                call_connection = "voicemail"
+            elif call_status == "ended":
                 call_connection = "successful"
             elif call_status in ["no_answer", "not_connected"]:
                 call_connection = "unsuccessful no pick up"
@@ -575,10 +584,16 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
 
         # Handle automatic retry logic for not connected calls
         # Call statuses that indicate "not connected": busy, no_answer, voicemail, not_connected
+        # Also check disconnection_reason for "voicemail_reached" (when voicemail detection is enabled)
         not_connected_statuses = ['busy', 'no_answer', 'voicemail', 'not_connected', 'user_busy', 'machine']
         
-        if call_status in not_connected_statuses or mapped_status in not_connected_statuses:
-            logger.info(f"Call not connected for {to_number} (status: {call_status}). Checking auto-retry eligibility...")
+        # Check if call should be retried: either status is in not_connected list OR disconnection_reason is voicemail_reached
+        should_retry = (call_status in not_connected_statuses or 
+                       mapped_status in not_connected_statuses or 
+                       disconnection_reason == "voicemail_reached")
+        
+        if should_retry:
+            logger.info(f"Call not connected for {to_number} (status: {call_status}, disconnection_reason: {disconnection_reason}, mapped_status: {mapped_status}). Checking auto-retry eligibility...")
             
             # Check if this is an auto-retry call or user-requested callback
             # Only schedule auto-retries for:
