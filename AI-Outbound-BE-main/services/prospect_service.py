@@ -53,6 +53,7 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
                             "scheduledCallDate": scheduled_call_date,
                             "scheduledCallTime": scheduled_call_time,
                             "ownerName": prospect.ownerName,
+                            "email": prospect.email,
                             "status": "new",
                             "retryCount": 0,
                             "callBackCount": 0,
@@ -119,7 +120,7 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
                     "phoneNumber": prospect.phoneNumber,
                     "businessName": prospect.businessName,
                     "ownerName": prospect.ownerName,
-                    "email": None,
+                    "email": prospect.email,
                     "status": "new",
                     "retryCount": 0,
                     "callBackCount": 0,
@@ -641,6 +642,41 @@ def get_prospect_details_by_phone_number_and_campaign_id(phone_number: str, camp
         return prospect
     else:
         return {"message": "Prospect not found"}
+
+def get_latest_call_context_by_phone_and_campaign(phone_number: str, campaign_id: str = None):
+    """
+    Get the most recent call transcript and summary for a prospect identified
+    by phone number and optional campaign_id.
+
+    Returns a dict with keys:
+      - transcript (str or None)
+      - callSummary (str or None)
+    If nothing is found, both values will be None.
+    """
+    try:
+        collection = get_prospects_collection()
+        prospect = collection.find_one({"phoneNumber": phone_number, "campaignId": campaign_id})
+        if not prospect:
+            return {"transcript": None, "callSummary": None}
+
+        calls = prospect.get("calls", [])
+        if not isinstance(calls, list) or not calls:
+            return {"transcript": None, "callSummary": None}
+
+        # Iterate from newest to oldest, mirroring callback context logic
+        for call in reversed(calls):
+            call_transcript = call.get("transcript")
+            call_summary = call.get("callSummary")
+            if call_transcript or call_summary:
+                return {
+                    "transcript": call_transcript,
+                    "callSummary": call_summary
+                }
+
+        return {"transcript": None, "callSummary": None}
+    except Exception as e:
+        logger.error(f"Error getting latest call context for {phone_number}, campaign {campaign_id}: {str(e)}")
+        return {"transcript": None, "callSummary": None}
 
 def get_prospects_by_campaign(campaign_name: str = None, campaign_id: str = None):
     """

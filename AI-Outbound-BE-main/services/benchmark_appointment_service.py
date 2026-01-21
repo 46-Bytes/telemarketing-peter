@@ -335,6 +335,19 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
     prospect_campaign_name = prospect.get("campaignName", "N/A")
     prospect_email = prospect.get("email")
 
+    # Get latest call context for inclusion in appointment description and admin/broker emails
+    from services.prospect_service import get_latest_call_context_by_phone_and_campaign
+    latest_call_context = None
+    latest_transcript = None
+    latest_summary = None
+    try:
+        if phone_number:
+            latest_call_context = get_latest_call_context_by_phone_and_campaign(phone_number, campaign_id)
+            latest_transcript = latest_call_context.get("transcript")
+            latest_summary = latest_call_context.get("callSummary")
+    except Exception as e:
+        logger.warning(f"[APPOINTMENT] Could not load latest call context for {phone_number}, campaign {campaign_id}: {e}")
+
     # Construct appointment description
     description = (
         f"This is a {meeting_type} meeting scheduled for {user_name} "
@@ -345,6 +358,19 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
         f"Prospect Campaign Name: {prospect_campaign_name}\n"
         f"Prospect Business Name: {prospect_business_name}"
     )
+
+    # Append latest summary/transcript into the calendar event description if available
+    if latest_summary or latest_transcript:
+        description += "\n\nRecent Conversation Context:\n"
+        if latest_summary:
+            description += f"\nCall Summary:\n{latest_summary}\n"
+        if latest_transcript:
+            # Keep transcript length reasonable in the calendar description
+            max_len = 4000
+            transcript_for_description = latest_transcript
+            if isinstance(transcript_for_description, str) and len(transcript_for_description) > max_len:
+                transcript_for_description = transcript_for_description[:max_len] + "... (truncated)"
+            description += f"\nTranscript:\n{transcript_for_description}\n"
 
     logger.info(f"[APPOINTMENT] Description: {description}")
 
@@ -373,17 +399,8 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
         logger.error("SMTP credentials not configured")
         return {"status": "error", "message": "Email service not configured"}
 
-    # Prepare the email content
-    for admin in super_admins:
-        admin_email = admin.get("email")
-        admin_name = admin.get("name", "Team")
-
-        msg = MIMEMultipart()
-        msg['From'] = smtp_user
-        msg['To'] = admin_email
-        msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment Confirmation"
-
-        # Construct the email body
+    # Helper to build the admin/broker email body
+    def _build_internal_email_body(recipient_name: str):
         body = f"""
             <html>
         <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; color: #333;">
@@ -398,7 +415,7 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
         <h2 style="color: #4a6fa5;">Appointment Confirmation</h2>
 
         <!-- Intro -->
-        <p>Dear {admin_name},</p>
+        <p>Dear {recipient_name},</p>
         <p>
             A new <strong>{appointment_type}</strong> appointment has been scheduled.
         </p>
@@ -416,6 +433,36 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
             <p><strong>Business Name:</strong> {prospect_business_name}</p>
         </div>
 
+        <!-- Conversation Context -->
+        """
+
+        # Add recent call summary and transcript for admin/broker review
+        if latest_summary or latest_transcript:
+            body += """
+        <div style="background-color: #f9f9fb; border-left: 4px solid #888; padding: 15px 20px; margin: 25px 0;">
+            <h3 style="margin-top: 0; color: #333;">Recent Conversation Context</h3>
+            <p style="margin-top: 0;">Below is the most recent call context with this prospect so you can review before the meeting.</p>
+            """
+            if latest_summary:
+                body += f"""
+            <p><strong>Call Summary:</strong></p>
+            <p style="white-space: pre-wrap; font-size: 0.95em; color: #333;">{latest_summary}</p>
+                """
+            if latest_transcript:
+                transcript_for_email = latest_transcript
+                max_len_email = 8000
+                if isinstance(transcript_for_email, str) and len(transcript_for_email) > max_len_email:
+                    transcript_for_email = transcript_for_email[:max_len_email] + "... (truncated)"
+                body += f"""
+            <p><strong>Full Transcript (latest call):</strong></p>
+            <pre style="white-space: pre-wrap; font-size: 0.9em; color: #444; background-color: #f1f1f5; padding: 10px; border-radius: 4px; overflow-x: auto;">{transcript_for_email}</pre>
+                """
+            body += """
+        </div>
+            """
+
+        body += """
+
         <!-- Footer -->
         <p>Please attend or follow up as needed.</p>
 
@@ -424,6 +471,21 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
         </body>
         </html>
         """
+
+        return body
+
+    # Prepare the email content for super admins
+    for admin in super_admins:
+        admin_email = admin.get("email")
+        admin_name = admin.get("name", "Team")
+
+        msg = MIMEMultipart()
+        msg['From'] = smtp_user
+        msg['To'] = admin_email
+        msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment Confirmation"
+
+        # Construct the email body
+        body = _build_internal_email_body(admin_name)
 
         msg.attach(MIMEText(body, 'html'))
 
@@ -438,8 +500,27 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
             logger.info(f"Appointment confirmation email successfully sent to {admin_email}")
         except Exception as e:
             logger.error(f"Failed to send email to {admin_email}: {e}")
-
  
+    # Also send the same internal email to the broker/advisor (user_email) so they
+    # have the transcript and context in their inbox as well as in the calendar event.
+    try:
+        broker_msg = MIMEMultipart()
+        broker_msg['From'] = smtp_user
+        broker_msg['To'] = "zohaibaamer2001@gmail.com"
+        broker_msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment – Prospect Details & Transcript"
+        broker_body = _build_internal_email_body(user_name)
+        broker_msg.attach(MIMEText(broker_body, 'html'))
+
+        logger.info(f"Sending appointment context email to broker/advisor zohaibaamer2001@gmail.com")
+        broker_server = smtplib.SMTP("smtp.gmail.com", 587)
+        broker_server.starttls()
+        broker_server.login(smtp_user, smtp_password)
+        broker_server.sendmail(smtp_user, "zohaibaamer2001@gmail.com", broker_msg.as_string())
+        broker_server.quit()
+        logger.info(f"Appointment context email successfully sent to broker/advisor zohaibaamer2001@gmail.com")
+    except Exception as e:
+        logger.error(f"Failed to send appointment context email to broker/advisor zohaibaamer2001@gmail.com: {e}")
+
     if phone_number:
         from services.prospect_service import update_prospect_appointment
 
