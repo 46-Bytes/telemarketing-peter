@@ -136,6 +136,7 @@ async def create_phone_call(prospects):
                 previous_transcript = None
                 previous_summary = None
                 is_callback_flag = False
+                email_for_call = None
                 try:
                     db_prospect = collection.find_one({"phoneNumber": prospect.phoneNumber, "campaignId": getattr(prospect, "campaignId", None)})
                     is_callback_flag = getattr(prospect, "isCallBack", None)
@@ -158,8 +159,12 @@ async def create_phone_call(prospects):
                                         break
                                 if not previous_transcript and not previous_summary:
                                     logger.warning(f"No previous transcript or summary found for callback to {prospect.phoneNumber}")
+                        # Prefer email coming from UI/prospect object; fall back to stored DB email
+                        email_for_call = getattr(prospect, "email", None) or db_prospect.get("email")
                 except Exception as _cb_e:
                     logger.warning(f"Could not enrich callback context for {prospect.phoneNumber}: {_cb_e}")
+                    # Fallback: still try to use email from the incoming prospect if available
+                    email_for_call = getattr(prospect, "email", None)
 
                 # Convert is_callback_flag to string (API requires string, not boolean)
                 is_callback_str = "true" if is_callback_flag is True else "false"
@@ -176,6 +181,7 @@ async def create_phone_call(prospects):
                         "owner_name": prospect.ownerName,
                         "phoneNumber": prospect.phoneNumber,
                         "campaign_id": prospect.campaignId,
+                        "email": email_for_call or "",
                         "is_callback": is_callback_str,
                         "previous_transcript": previous_transcript_str,
                         "previous_summary": previous_summary_str
