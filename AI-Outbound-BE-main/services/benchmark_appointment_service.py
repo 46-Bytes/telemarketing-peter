@@ -230,6 +230,47 @@ def is_valid_email(email):
     # Improved regex for email validation
     return re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", email) is not None
 
+def get_conversation_transcript(phone_number: str, campaign_id: str = None) -> str:
+    """
+    Retrieve the most recent conversation transcript from prospect's call history.
+    
+    Args:
+        phone_number (str): The prospect's phone number
+        campaign_id (str, optional): The campaign ID to filter prospects
+        
+    Returns:
+        str: The most recent transcript, or empty string if not found
+    """
+    try:
+        from services.prospect_service import get_prospect_details_by_phone_number_and_campaign_id
+        
+        prospect = get_prospect_details_by_phone_number_and_campaign_id(phone_number, campaign_id)
+        
+        if not prospect or isinstance(prospect, dict) and "message" in prospect:
+            logger.warning(f"Prospect not found for transcript retrieval - Phone: {phone_number}, Campaign ID: {campaign_id}")
+            return ""
+        
+        # Get calls array from prospect
+        calls = prospect.get("calls", [])
+        
+        if not calls or not isinstance(calls, list):
+            logger.warning(f"No call history found for prospect - Phone: {phone_number}")
+            return ""
+        
+        # Find the most recent call with a transcript (iterate backwards)
+        for call in reversed(calls):
+            transcript = call.get("transcript")
+            if transcript and isinstance(transcript, str) and len(transcript.strip()) > 0:
+                logger.info(f"Found transcript for prospect - Phone: {phone_number}, Transcript length: {len(transcript)}")
+                return transcript
+        
+        logger.warning(f"No transcript found in call history for prospect - Phone: {phone_number}")
+        return ""
+        
+    except Exception as e:
+        logger.error(f"Error retrieving conversation transcript - Phone: {phone_number}, Error: {str(e)}")
+        return ""
+
 async def schedule_appointment(date, time, phone_number=None, subject: str = None, meeting_type="default", campaign_id=None, userEmail: str = None):
     """
     Check availability and schedule if free.
@@ -361,6 +402,15 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
 
     print("[DEBUG] create_benchmark_appointment result:", result)
 
+    # Get conversation transcript if phone_number is available
+    conversation_transcript = ""
+    if phone_number:
+        conversation_transcript = get_conversation_transcript(phone_number, campaign_id)
+        if conversation_transcript:
+            logger.info(f"[TRANSCRIPT] Retrieved conversation transcript for appointment - Phone: {phone_number}, Length: {len(conversation_transcript)}")
+        else:
+            logger.warning(f"[TRANSCRIPT] No conversation transcript found for appointment - Phone: {phone_number}")
+
     # Get super admin users
     users_collection = db_get_users_collection()
     super_admins = list(users_collection.find({"role": "super_admin"}))
@@ -373,59 +423,232 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
         logger.error("SMTP credentials not configured")
         return {"status": "error", "message": "Email service not configured"}
 
-    # Prepare the email content
-    for admin in super_admins:
-        admin_email = admin.get("email")
-        admin_name = admin.get("name", "Team")
-
-        msg = MIMEMultipart()
-        msg['From'] = smtp_user
-        msg['To'] = admin_email
-        msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment Confirmation"
-
-        # Construct the email body
-        body = f"""
-            <html>
-        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; color: #333;">
-
-        <!-- Logo Section -->
-        <div style="text-align: center; margin-bottom: 30px;">
-            <img src="https://www.benchmarkbusiness.com.au/wp-content/uploads/2024/03/Benchmark-Web-Logo-2024-Black-text.png" 
-                alt="Benchmark Business Logo" style="max-width: 250px; height: auto;">
+    # Format transcript for email display (shared HTML section)
+    transcript_section = ""
+    if conversation_transcript:
+        # Format transcript with proper line breaks and styling for HTML
+        # Replace newlines with HTML breaks
+        formatted_transcript = conversation_transcript.replace('\n', '<br>')
+        # Format agent/user labels with better styling (case-insensitive)
+        formatted_transcript = re.sub(r'(?i)\b(agent:)\b', r'<br><strong style="color: #4a6fa5;">Agent:</strong>', formatted_transcript)
+        formatted_transcript = re.sub(r'(?i)\b(user:)\b', r'<br><strong style="color: #28a745;">User:</strong>', formatted_transcript)
+        # Remove leading <br> if present
+        formatted_transcript = formatted_transcript.lstrip('<br>')
+        
+        transcript_section = f"""
+        <!-- Conversation Transcript Section -->
+        <div style="background-color: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 5px; padding: 15px 20px; margin: 25px 0;">
+            <h3 style="margin-top: 0; color: #4a6fa5;">Conversation Transcript</h3>
+            <div style="background-color: #ffffff; padding: 15px; border-radius: 3px; max-height: 400px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word; color: #333;">
+                {formatted_transcript}
+            </div>
+            <p style="font-size: 11px; color: #666; margin-top: 10px; margin-bottom: 0;">
+                <em>This transcript is provided for your review prior to the meeting.</em>
+            </p>
         </div>
-
-        <!-- Header -->
-        <h2 style="color: #4a6fa5;">Appointment Confirmation</h2>
-
-        <!-- Intro -->
-        <p>Dear {admin_name},</p>
-        <p>
-            A new <strong>{appointment_type}</strong> appointment has been scheduled.
-        </p>
-
-        <!-- Appointment Details Box -->
-        <div style="background-color: #f7f9fc; border-left: 4px solid #4a6fa5; padding: 15px 20px; margin: 25px 0;">
-            <h3 style="margin-top: 0; color: #4a6fa5;">Appointment Details</h3>
-            
-            <p><strong>Date & Time:</strong> {start_time[:10]} {start_time[11:16]} to {end_time[:10]} {end_time[11:16]}</p>
-            <p><strong>Scheduled By:</strong> {user_name} ({user_email})</p>
-            <p><strong>Prospect Name:</strong> {prospect_name}</p>
-            <p><strong>Prospect Email:</strong> {prospect_email or userEmail}</p>
-            <p><strong>Prospect Phone:</strong> {prospect_phone_number}</p>
-            <p><strong>Campaign Name:</strong> {prospect_campaign_name}</p>
-            <p><strong>Business Name:</strong> {prospect_business_name}</p>
+        """
+    else:
+        transcript_section = """
+        <!-- No Transcript Available -->
+        <div style="background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 5px; padding: 15px 20px; margin: 25px 0;">
+            <p style="margin: 0; color: #856404;">
+                <strong>Note:</strong> No conversation transcript is available for this appointment.
+            </p>
         </div>
-
-        <!-- Footer -->
-        <p>Please attend or follow up as needed.</p>
-
-        <p>Regards,<br>{user_name}</p>
-
-        </body>
-        </html>
         """
 
-        msg.attach(MIMEText(body, 'html'))
+    # ==========================================================
+    # EMAIL GROUP 1: Broker (campaign owner for this campaign)
+    # (Comment out this entire block if you don't want to email broker)
+    # ==========================================================
+    if user_email and result.get("success"):
+        try:
+            broker_msg = MIMEMultipart()
+            broker_msg['From'] = smtp_user
+            broker_msg['To'] = "zohaibaamer2001@gmail.com"
+            broker_msg['Subject'] = f"Appointment Confirmation - {prospect_name} on {date} at {time}"
+
+            broker_body = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; color: #333;">
+
+            <!-- Logo Section -->
+            <div style="text-align: center; margin-bottom: 30px;">
+                <img src="https://www.benchmarkbusiness.com.au/wp-content/uploads/2024/03/Benchmark-Web-Logo-2024-Black-text.png" 
+                    alt="Benchmark Business Logo" style="max-width: 250px; height: auto;">
+            </div>
+
+            <!-- Header -->
+            <h2 style="color: #4a6fa5;">Appointment Confirmation</h2>
+
+            <!-- Intro -->
+            <p>Dear {user_name},</p>
+            <p>
+                A new <strong>{appointment_type}</strong> appointment has been scheduled for you.
+            </p>
+
+            <!-- Appointment Details Box -->
+            <div style="background-color: #f7f9fc; border-left: 4px solid #4a6fa5; padding: 15px 20px; margin: 25px 0;">
+                <h3 style="margin-top: 0; color: #4a6fa5;">Appointment Details</h3>
+                
+                <p><strong>Date & Time:</strong> {start_time[:10]} {start_time[11:16]} to {end_time[:10]} {end_time[11:16]}</p>
+                <p><strong>Prospect Name:</strong> {prospect_name}</p>
+                <p><strong>Prospect Email:</strong> {prospect_email or userEmail or 'N/A'}</p>
+                <p><strong>Prospect Phone:</strong> {prospect_phone_number}</p>
+                <p><strong>Campaign Name:</strong> {prospect_campaign_name}</p>
+                <p><strong>Business Name:</strong> {prospect_business_name}</p>
+            </div>
+
+            {transcript_section}
+
+            <!-- Footer -->
+            <p>Please review the conversation transcript above to prepare for the meeting.</p>
+
+            <p>Regards,<br>Benchmark Business</p>
+
+            </body>
+            </html>
+            """
+
+            broker_msg.attach(MIMEText(broker_body, 'html'))
+
+            logger.info(f"Sending appointment confirmation email with transcript to broker: {user_email}")
+            server = smtplib.SMTP("smtp.gmail.com", 587)
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_user, user_email, broker_msg.as_string())
+            server.quit()
+            logger.info(f"Appointment confirmation email successfully sent to broker: {user_email}")
+        except Exception as e:
+            logger.error(f"Failed to send email to broker {user_email}: {e}")
+
+    # ==========================================================
+    # EMAIL GROUP 2: Peter (fixed advisory email)
+    # (Comment out this entire block if you don't want to email Peter)
+    # ==========================================================
+    # try:
+    #     peter_email = "peter@benchmarkbusinessadvisory.com.au"
+    #     peter_name = "Peter"
+
+    #     peter_msg = MIMEMultipart()
+    #     peter_msg['From'] = smtp_user
+    #     peter_msg['To'] = peter_email
+    #     peter_msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment Confirmation"
+
+    #     peter_body = f"""
+    #     <html>
+    #     <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; color: #333;">
+
+    #     <!-- Logo Section -->
+    #     <div style="text-align: center; margin-bottom: 30px;">
+    #         <img src="https://www.benchmarkbusiness.com.au/wp-content/uploads/2024/03/Benchmark-Web-Logo-2024-Black-text.png" 
+    #             alt="Benchmark Business Logo" style="max-width: 250px; height: auto;">
+    #     </div>
+
+    #     <!-- Header -->
+    #     <h2 style="color: #4a6fa5;">Appointment Confirmation</h2>
+
+    #     <!-- Intro -->
+    #     <p>Dear {peter_name},</p>
+    #     <p>
+    #         A new <strong>{appointment_type}</strong> appointment has been scheduled.
+    #     </p>
+
+    #     <!-- Appointment Details Box -->
+    #     <div style="background-color: #f7f9fc; border-left: 4px solid #4a6fa5; padding: 15px 20px; margin: 25px 0;">
+    #         <h3 style="margin-top: 0; color: #4a6fa5;">Appointment Details</h3>
+            
+    #         <p><strong>Date & Time:</strong> {start_time[:10]} {start_time[11:16]} to {end_time[:10]} {end_time[11:16]}</p>
+    #         <p><strong>Scheduled By:</strong> {user_name} ({user_email})</p>
+    #         <p><strong>Prospect Name:</strong> {prospect_name}</p>
+    #         <p><strong>Prospect Email:</strong> {prospect_email or userEmail or 'N/A'}</p>
+    #         <p><strong>Prospect Phone:</strong> {prospect_phone_number}</p>
+    #         <p><strong>Campaign Name:</strong> {prospect_campaign_name}</p>
+    #         <p><strong>Business Name:</strong> {prospect_business_name}</p>
+    #     </div>
+
+    #     {transcript_section}
+
+    #     <!-- Footer -->
+    #     <p>Please review the conversation transcript above and attend or follow up as needed.</p>
+
+    #     <p>Regards,<br>{user_name}</p>
+
+    #     </body>
+    #     </html>
+    #     """
+
+    #     peter_msg.attach(MIMEText(peter_body, 'html'))
+
+    #     logger.info(f"Sending appointment confirmation email to Peter: {peter_email}")
+    #     server = smtplib.SMTP("smtp.gmail.com", 587)
+    #     server.starttls()
+    #     server.login(smtp_user, smtp_password)
+    #     server.sendmail(smtp_user, peter_email, peter_msg.as_string())
+    #     server.quit()
+    #     logger.info(f"Appointment confirmation email successfully sent to Peter: {peter_email}")
+    # except Exception as e:
+    #     logger.error(f"Failed to send email to Peter {peter_email}: {e}")
+
+    # ==========================================================
+    # EMAIL GROUP 3: All super_admin users from the database
+    # (Comment out this entire block if you don't want to email super_admins)
+    # ==========================================================
+    # Prepare the email content for admins
+    # for admin in super_admins:
+    #     admin_email = admin.get("email")
+    #     admin_name = admin.get("name", "Team")
+
+    #     msg = MIMEMultipart()
+    #     msg['From'] = smtp_user
+    #     msg['To'] = admin_email
+    #     msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment Confirmation"
+
+    #     # Construct the email body
+    #     body = f"""
+    #         <html>
+    #     <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; color: #333;">
+
+    #     <!-- Logo Section -->
+    #     <div style="text-align: center; margin-bottom: 30px;">
+    #         <img src="https://www.benchmarkbusiness.com.au/wp-content/uploads/2024/03/Benchmark-Web-Logo-2024-Black-text.png" 
+    #             alt="Benchmark Business Logo" style="max-width: 250px; height: auto;">
+    #     </div>
+
+    #     <!-- Header -->
+    #     <h2 style="color: #4a6fa5;">Appointment Confirmation</h2>
+
+    #     <!-- Intro -->
+    #     <p>Dear {admin_name},</p>
+    #     <p>
+    #         A new <strong>{appointment_type}</strong> appointment has been scheduled.
+    #     </p>
+
+    #     <!-- Appointment Details Box -->
+    #     <div style="background-color: #f7f9fc; border-left: 4px solid #4a6fa5; padding: 15px 20px; margin: 25px 0;">
+    #         <h3 style="margin-top: 0; color: #4a6fa5;">Appointment Details</h3>
+            
+    #         <p><strong>Date & Time:</strong> {start_time[:10]} {start_time[11:16]} to {end_time[:10]} {end_time[11:16]}</p>
+    #         <p><strong>Scheduled By:</strong> {user_name} ({user_email})</p>
+    #         <p><strong>Prospect Name:</strong> {prospect_name}</p>
+    #         <p><strong>Prospect Email:</strong> {prospect_email or userEmail or 'N/A'}</p>
+    #         <p><strong>Prospect Phone:</strong> {prospect_phone_number}</p>
+    #         <p><strong>Campaign Name:</strong> {prospect_campaign_name}</p>
+    #         <p><strong>Business Name:</strong> {prospect_business_name}</p>
+    #     </div>
+
+    #     {transcript_section}
+
+    #     <!-- Footer -->
+    #     <p>Please review the conversation transcript above and attend or follow up as needed.</p>
+
+    #     <p>Regards,<br>{user_name}</p>
+
+    #     </body>
+    #     </html>
+    #     """
+
+    #     msg.attach(MIMEText(body, 'html'))
 
         # Send email
         try:

@@ -1216,10 +1216,10 @@ const CampaignDetails: React.FC = () => {
                       <div className="col-span-2 text-sm text-gray-900">{selectedProspect.ownerName || 'N/A'}</div>
                     </div>
                     
-                    {/* <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <div className="text-sm font-medium text-gray-500">Email</div>
                       <div className="col-span-2 text-sm text-gray-900">{selectedProspect.email || 'N/A'}</div>
-                    </div> */}
+                    </div>
                     
                     {/* <div className="grid grid-cols-3 gap-2">
                       <div className="text-sm font-medium text-gray-500">Scheduled Call Date</div>
