@@ -466,7 +466,7 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
         <!-- Footer -->
         <p>Please attend or follow up as needed.</p>
 
-        <p>Regards,<br>{user_name}</p>
+        <p>Regards.</p>
 
         </body>
         </html>
@@ -506,20 +506,20 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
     try:
         broker_msg = MIMEMultipart()
         broker_msg['From'] = smtp_user
-        broker_msg['To'] = "zohaibaamer2001@gmail.com"
+        broker_msg['To'] = user_email
         broker_msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment – Prospect Details & Transcript"
         broker_body = _build_internal_email_body(user_name)
         broker_msg.attach(MIMEText(broker_body, 'html'))
 
-        logger.info(f"Sending appointment context email to broker/advisor zohaibaamer2001@gmail.com")
+        logger.info(f"Sending appointment context email to broker/advisor {user_email}")
         broker_server = smtplib.SMTP("smtp.gmail.com", 587)
         broker_server.starttls()
         broker_server.login(smtp_user, smtp_password)
-        broker_server.sendmail(smtp_user, "zohaibaamer2001@gmail.com", broker_msg.as_string())
+        broker_server.sendmail(smtp_user, user_email, broker_msg.as_string())
         broker_server.quit()
-        logger.info(f"Appointment context email successfully sent to broker/advisor zohaibaamer2001@gmail.com")
+        logger.info(f"Appointment context email successfully sent to broker/advisor {user_email}")
     except Exception as e:
-        logger.error(f"Failed to send appointment context email to broker/advisor zohaibaamer2001@gmail.com: {e}")
+        logger.error(f"Failed to send appointment context email to broker/advisor {user_email}: {e}")
 
     if phone_number:
         from services.prospect_service import update_prospect_appointment
