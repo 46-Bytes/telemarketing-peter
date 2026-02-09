@@ -164,36 +164,37 @@ from services.auto_retry_service import schedule_auto_retry, reset_auto_retry_fi
 async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
     """Update prospect information with call details from webhook - handles both individual and batch calls"""
     try:
-        logger.info(f"Updating prospect call info for webhook data: {webhook_data}")
         collection = get_prospects_collection()
         call_data = webhook_data.get('call', {})
-        
+
         # Extract required information from webhook data
         call_status = call_data.get('call_status', 'unknown')
         disconnection_reason = call_data.get('disconnection_reason')
-        
+
         # Map call status to our internal status
-        # If disconnection_reason is "voicemail_reached", treat it as voicemail (not connected)
         if disconnection_reason == "voicemail_reached":
             mapped_status = "voicemail"
         elif call_status == "error" and disconnection_reason:
             mapped_status = disconnection_reason
         else:
             mapped_status = call_status
-            
+
+        to_number = call_data.get('to_number', '')
+        call_id = call_data.get('call_id')
+        campaign_id = call_data.get('retell_llm_dynamic_variables', {}).get('campaign_id')
+        duration_s = round(call_data.get('duration_ms', 0) / 1000, 1)
+
+        logger.info("[WEBHOOK] Processing | phone=%s | call_id=%s | status=%s | mapped=%s | disconnect=%s | duration=%ss | campaign=%s",
+                     to_number, call_id, call_status, mapped_status, disconnection_reason, duration_s, campaign_id)
+
         call_info = {
             "timestamp": datetime.fromtimestamp(call_data.get('start_timestamp', 0) / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z'),
-            "duration": call_data.get('duration_ms', 0) / 1000,
+            "duration": duration_s,
             "status": mapped_status,
             "recordingUrl": call_data.get('recording_url'),
             "transcript": call_data.get('transcript'),
             "callSummary": call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('call_summary_info')
         }
-
-        # Get the existing prospect data first
-        to_number = call_data.get('to_number', '')
-        call_id = call_data.get('call_id')
-        campaign_id = call_data.get('retell_llm_dynamic_variables', {}).get('campaign_id')
         
         # For batch calls, we need to find the prospect by phone number and campaign ID
         # and look for a call entry with batchId (not callId)
@@ -262,6 +263,8 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         # Handle appointment info
         new_appointment_interest = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('appointment_interest')
         new_appointment_datetime = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('appointment_date_time')
+        if new_appointment_interest:
+            logger.info("[WEBHOOK] Appointment interest detected | phone=%s | datetime=%s", to_number, new_appointment_datetime)
         
         # Extract appointment type from transcript
         transcript = call_data.get('transcript', '').lower()
@@ -309,10 +312,12 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         call_back_request = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('call_back_request')
         new_call_back_date = None
         new_call_back_time = None
-        
+
         # Get the callback date from analysis
         analysis_callback_date = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('call_back_date', '')
         analysis_callback_time = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('call_back_time', '')
+        if call_back_request:
+            logger.info("[WEBHOOK] Callback requested | phone=%s | date=%s | time=%s", to_number, analysis_callback_date, analysis_callback_time)
 
         if call_back_request is True and analysis_callback_date:
             # Validate if the date is in YYYY-MM-DD format
@@ -363,10 +368,14 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             is_ebook = new_ebook if (existing_ebook is None or existing_ebook is False) else existing_ebook
         else:
             is_ebook = new_ebook
+        if is_ebook:
+            logger.info("[WEBHOOK] Ebook interest | phone=%s", to_number)
 
         # determine if the prospect is subscribed to the newsletter
         is_newsletter_sent = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('is_subscribe_to_news_letter')
         email = call_data.get('call_analysis', {}).get('custom_analysis_data', {}).get('email')
+        if is_newsletter_sent:
+            logger.info("[WEBHOOK] Newsletter subscription | phone=%s | email=%s", to_number, email)
         
         # Create audit log entry
         audit_log = {
@@ -381,7 +390,6 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
 
         # Map call status to prospect status
         call_status = call_data.get('call_status', 'unknown')
-        # If disconnection_reason is "voicemail_reached", treat as not picked up
         if disconnection_reason == "voicemail_reached":
             prospect_status = "contacted"
         elif call_status == "ended":
@@ -390,6 +398,7 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             prospect_status = "contacted"
         else:
             prospect_status = "error"
+        logger.info("[WEBHOOK] Prospect status resolved | phone=%s | prospect_status=%s", to_number, prospect_status)
             
         # Create update dictionary for prospect-level fields
         prospect_update_dict = {
@@ -594,40 +603,38 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                        disconnection_reason == "voicemail_reached")
         
         if should_retry:
-            logger.info(f"Call not connected for {to_number} (status: {call_status}, disconnection_reason: {disconnection_reason}, mapped_status: {mapped_status}). Checking auto-retry eligibility...")
-            
-            # Check if this is an auto-retry call or user-requested callback
-            # Only schedule auto-retries for:
-            # 1. New prospects (not user-requested callbacks)
-            # 2. Prospects who haven't exhausted retries
+            logger.info("[WEBHOOK] Not connected → checking auto-retry | phone=%s | status=%s | disconnect=%s", to_number, call_status, disconnection_reason)
+
             existing_prospect = collection.find_one({
                 "phoneNumber": to_number,
                 "campaignId": campaign_id
             })
-            
+
             if existing_prospect:
-                # Don't schedule auto-retry if user explicitly requested a callback (we have a different scheduler for that)
                 is_user_callback = existing_prospect.get("isCallBack") is True and call_back_request is True
-                
-                if not is_user_callback:
-                    # This is a not-connected call that should be auto-retried
+
+                if is_user_callback:
+                    logger.info("[WEBHOOK] Skipping auto-retry (user callback) | phone=%s", to_number)
+                else:
                     call_timestamp = call_info.get('timestamp')
+                    logger.info("[WEBHOOK] Scheduling auto-retry | phone=%s | campaign=%s", to_number, campaign_id)
                     schedule_auto_retry(
                         phone_number=to_number,
                         campaign_id=campaign_id,
                         call_status=mapped_status,
                         call_timestamp=call_timestamp
                     )
-        
-        # If call was picked up successfully, reset auto-retry fields
+
         elif call_status == "ended" or prospect_status == "picked_up":
-            logger.info(f"Call picked up for {to_number}. Resetting auto-retry fields if any...")
+            logger.info("[WEBHOOK] Call picked up → resetting auto-retry fields | phone=%s", to_number)
             reset_auto_retry_fields_on_success(
                 phone_number=to_number,
                 campaign_id=campaign_id
             )
+        else:
+            logger.info("[WEBHOOK] No retry action needed | phone=%s | status=%s", to_number, call_status)
 
-        logger.info(f"Successfully updated prospect call information for phone number: {to_number}")
+        logger.info("[WEBHOOK] Done | phone=%s | prospect_status=%s", to_number, prospect_status)
         return {"message": "Prospect call information updated successfully"}
 
     except Exception as e:

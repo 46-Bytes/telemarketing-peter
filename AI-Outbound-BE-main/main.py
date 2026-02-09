@@ -82,8 +82,14 @@ def read_root():
 @app.post("/webhook")
 async def webhook(request: Request):
     data = await request.json()
-    logger.info(f"Webhook received: {data}")
-    if data["event"] == "call_analyzed":
+    event = data.get("event", "unknown")
+    call_data = data.get("call", {})
+    to_number = call_data.get("to_number", "?")
+    call_id = call_data.get("call_id", "?")
+    call_status = call_data.get("call_status", "?")
+    duration_s = round(call_data.get("duration_ms", 0) / 1000, 1)
+    logger.info("[WEBHOOK] event=%s | to=%s | call_id=%s | status=%s | duration=%ss", event, to_number, call_id, call_status, duration_s)
+    if event == "call_analyzed":
         result = await update_prospect_call_info(data)
     return {"message": "Webhook received"}
 
