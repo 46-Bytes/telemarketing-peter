@@ -107,9 +107,8 @@ async def process_scheduled_calls():
         # except Exception as _e:
         #     logger.warning(f"Report seed failed for scheduled campaign: {_e}")
 
-        # Initiate calls
-        logger.info(f"@@@@ --Scheduled Calls------  Initiating scheduled calls for {len(prospect_objects)} prospects")
-        await create_phone_call(prospect_objects)
+        logger.info("[CALL] Scheduled calls starting | count=%s", len(prospect_objects))
+        await create_phone_call(prospect_objects, source="scheduled")
 
     except Exception as e:
         logger.error(f"Error in process_scheduled_calls: {str(e)}")

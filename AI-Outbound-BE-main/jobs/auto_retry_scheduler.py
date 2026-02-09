@@ -70,22 +70,12 @@ async def process_auto_retries():
             logger.warning("No valid prospects prepared for auto-retry")
             return
         
-        # Initiate calls for all prospects
-        logger.info(f"Initiating {len(prospect_objects)} auto-retry calls...")
+        logger.info("[CALL] Auto-retry starting | count=%s", len(prospect_objects))
         try:
-            result = await create_phone_call(prospect_objects)
-            logger.info(f"Auto-retry calls initiated successfully: {result}")
-            logger.info(
-                f"Total prospects: {result.get('total_prospects', 0)}, "
-                f"Batches: {result.get('total_batches', 0)}"
-            )
+            result = await create_phone_call(prospect_objects, source="auto_retry")
         except Exception as call_error:
-            logger.error(f"Error initiating auto-retry calls: {str(call_error)}")
+            logger.error("[CALL] Auto-retry failed: %s", call_error)
             raise
-        
-        logger.info("=" * 80)
-        logger.info("Auto-retry processing completed")
-        logger.info("=" * 80)
     
     except Exception as e:
         logger.error(f"Error in process_auto_retries: {str(e)}")

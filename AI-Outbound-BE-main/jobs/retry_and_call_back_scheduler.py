@@ -95,14 +95,8 @@ async def schedule_callbacks():
             ) for prospect in prospects
         ]
 
-        # Log prospect details before initiating calls
-        for po in prospect_objects:
-            logger.info(f"Initiating callback for: {po.name} ({po.phoneNumber}) at {po.callBackTime}")
-
-        # Initiate calls
-        logger.info(f"@@@@ -- Callback Scheduler ------  Initiating callback calls for {len(prospect_objects)} prospects")
-        result = await create_phone_call(prospect_objects)
-        logger.info(f"@@@@ -- Callback Scheduler ------  Callback initiation completed. Result: {result}")
+        logger.info("[CALL] Callback scheduler starting | count=%s", len(prospect_objects))
+        result = await create_phone_call(prospect_objects, source="callback")
 
     except Exception as e:
         logger.error(f"Error in schedule_callbacks: {str(e)}", exc_info=True)

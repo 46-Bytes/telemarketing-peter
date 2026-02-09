@@ -41,27 +41,26 @@ def format_phone_number(phone_number: str) -> str:
     # Remove any spaces, dashes, parentheses, and other non-digit characters except +
     cleaned = re.sub(r'[^\d+]', '', phone_number.strip())
     
-    # If it doesn't start with +, add it
+    # Ensure + prefix so the number is stored and sent with + everywhere
     if not cleaned.startswith('+'):
         cleaned = '+' + cleaned
-    
+
     if cleaned.startswith('+92'):
         return cleaned
 
     # Handle Australian phone number formatting
-    # Count only digits (excluding the +)
     digits_only = cleaned[1:] if cleaned.startswith('+') else cleaned
-    
-    # If number starts with 0, replace with +61
+
     if digits_only.startswith('0'):
-        cleaned = '+61' + digits_only[1:]  # Remove the leading 0 and add +61
-    # If we have exactly 9 digits, add +61
+        cleaned = '+61' + digits_only[1:]
     elif len(digits_only) == 9:
         cleaned = '+61' + digits_only
-    # If we have exactly 10 digits and doesn't start with 61, add +6
     elif len(digits_only) == 10 and not digits_only.startswith('61'):
         cleaned = '+6' + digits_only
 
+    # Final safeguard: ensure output always has + prefix when non-empty
+    if cleaned and not cleaned.startswith('+'):
+        cleaned = '+' + cleaned
     return cleaned
 
 @router.get("/demo")
@@ -227,43 +226,39 @@ async def get_prospects_by_campaign_route(request: Request):
 @router.get("/initiate_call")
 async def initiate_call(request: Request):
     """
-    Initiate a phone call to a specific prospect
-    
+    Initiate a phone call to a specific prospect (Call Now button).
+
     Query parameters:
         phoneNumber: string - The phone number to initiate the call
         campaignId: string - The campaign ID to which the prospect belongs
     """
     try:
-        # Get the phone number from query parameters
         params = dict(request.query_params)
         phone_number = params.get('phoneNumber')
         campaign_id = params.get('campaignId')
+        logger.info("[CALL] /initiate_call requested | phone=%s | campaign_id=%s", phone_number, campaign_id)
         if not phone_number or not campaign_id:
             raise HTTPException(
                 status_code=400,
                 detail="Phone number and campaignId is required as a query parameter"
             )
         
-        # Format phone number to ensure it has the correct format (remove spaces, add + if needed)
-        formatted_phone = phone_number.strip()
-        if formatted_phone.startswith('+'):
-            # Already has a plus sign, use as is
-            pass
-        elif formatted_phone.isdigit():
-            # Add a plus sign to the beginning
-            formatted_phone = "+" + formatted_phone
-        
+        # Normalize phone: add + if missing, strip, so we store and use it consistently
+        formatted_phone = format_phone_number(phone_number.strip()) if phone_number else ""
+        if not formatted_phone or formatted_phone == '+':
+            raise HTTPException(status_code=400, detail="Invalid phone number")
+
         # Get the prospect details
         prospect = get_prospect_by_phone_number(formatted_phone, campaign_id)
         if not prospect:
-            # Try with the original phone number format if the formatted one doesn't match
-            prospect = get_prospect_by_phone_number(phone_number, campaign_id)
+            prospect = get_prospect_by_phone_number(phone_number.strip(), campaign_id)
             if not prospect:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Prospect with phone number {phone_number} not found"
                 )
-            formatted_phone = phone_number  # Use the original format if that's what was found
+            # Use stored number normalized with + so we send it with + further
+            formatted_phone = format_phone_number(prospect.get("phoneNumber", "")) or formatted_phone
             
         # Create a ProspectIn object to pass to create_phone_call
         prospect_obj = ProspectIn(
@@ -274,25 +269,16 @@ async def initiate_call(request: Request):
             campaignName=prospect.get('campaignName', ''),  # Include the campaign name
             campaignId=prospect.get('campaignId', ''),  # Include the campaign ID
         )
-        print(f"prospect_obj: {prospect_obj}")
-        # Initiate the call
+        logger.info("[CALL] Initiated from Call Now | phone=%s | campaign_id=%s", formatted_phone, campaign_id)
         try:
-            result = await create_phone_call([prospect_obj])
-            
-            # return {
-            #     "status": "success",
-            #     "message": f"Call initiated to {formatted_phone}",
-            #     "data": {
-            #         "callId": result.call_id if hasattr(result, 'call_id') else None
-            #     }
-            # }
-            logger.info(f"Total Prospects: {result['total_prospects']}, Total Batches: {result['total_batches']}, Batch Responses: {result['batch_responses']}")
+            result = await create_phone_call([prospect_obj], source="call_now")
+            logger.info("[CALL] Call Now completed | phone=%s | batches=%s", formatted_phone, result.get('total_batches', 0))
+            return result
         except Exception as call_error:
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to initiate call: {str(call_error)}"
             )
-            
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -361,8 +347,7 @@ async def initiate_campaign_calls(request: Request):
         #     logger.warning(f"Report seed failed for campaign {campaign_id}: {_e}")
 
         # Initiate calls for all valid prospects
-        result = await create_phone_call(prospects_to_call)
-        
+        result = await create_phone_call(prospects_to_call, source="campaign_call")
         return {
             "success": True, 
             "message": f"Initiated calls for {len(prospects_to_call)} prospects in campaign {campaign_name}"

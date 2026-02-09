@@ -29,12 +29,6 @@ def run_scheduler():
         # schedule.every(1).minutes.do(send_monthly_newsletter)   # later change to every month
         # schedule.every().month.at("10:00").do(send_monthly_newsletter)
         
-        logger.info("Scheduler started. Will run:")
-        logger.info("- Scheduled calls every 1 minute (every day at 9 AM in production)")
-        logger.info("- User-requested callbacks every 1 minute (every hour in production)")
-        logger.info("- Auto-retries for not-connected calls every 1 minute (every 10 minutes in production)")
-        logger.info("- Newsletter on the first day of every month at 10 AM")
-        
         # Keep the script running
         while True:
             schedule.run_pending()

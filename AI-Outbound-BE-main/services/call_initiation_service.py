@@ -48,59 +48,52 @@ def is_valid_number(phone_number: str) -> bool:
     
     return False
 
-async def create_phone_call(prospects):
+async def create_phone_call(prospects, source="unknown"):
     """
-    Initiate phone calls to prospects using batch calls for efficiency
-    
+    Initiate phone calls to prospects using batch calls for efficiency.
+
     Args:
-        prospects (list): List of ProspectIn objects containing contact information
-        
+        prospects (list): List of ProspectIn objects containing contact information.
+        source (str): Origin of the call: "call_now", "scheduled", "campaign_call", "callback", "auto_retry", or "unknown".
+
     Returns:
-        dict: Result of the call initiation
+        dict: Result of the call initiation.
     """
     try:
-        # Check if API key is available
         api_key = os.getenv("RETELL_API_KEY")
         if not api_key:
             raise ValueError("RETELL_API_KEY environment variable not set")
-            
-        # Check if from number is available
         from_number = os.getenv("FROM_NUMBER")
         if not from_number:
             raise ValueError("FROM_NUMBER environment variable not set")
-            
+
         client = Retell(api_key=api_key)
         current_time = datetime.utcnow().isoformat() + "Z"
-        
+
         if not prospects or len(prospects) == 0:
             raise ValueError("No prospects provided for call initiation")
-        
-        # Filter out prospects without phone numbers
+
         valid_prospects = [p for p in prospects if p.phoneNumber]
         if not valid_prospects:
-            logger.warning("No valid prospects with phone numbers found")
+            logger.warning("[CALL] No valid prospects with phone numbers")
             return None
-            
-        logger.info(f"Processing {len(valid_prospects)} prospects for batch calls")
-        
+
+        campaign_id = getattr(valid_prospects[0], "campaignId", None)
+        logger.info("[CALL] create_phone_call started | source=%s | count=%s | campaign_id=%s", source, len(valid_prospects), campaign_id or "n/a")
+
         # Initialize campaign report if campaign_id is available
         if valid_prospects and hasattr(valid_prospects[0], 'campaignId') and valid_prospects[0].campaignId:
             campaign_id = valid_prospects[0].campaignId
-            logger.info(f"Initializing campaign report for campaign {campaign_id}")
+            logger.debug("Initializing campaign report for campaign %s", campaign_id)
             try:
                 from services.report_service import seed_rows_if_missing
                 prospects_data = [
-                    {
-                        "name": p.name or "",
-                        "phoneNumber": p.phoneNumber,
-                        "businessName": p.businessName or "",
-                    }
+                    {"name": p.name or "", "phoneNumber": p.phoneNumber, "businessName": p.businessName or ""}
                     for p in valid_prospects
                 ]
                 seed_rows_if_missing(campaign_id, prospects_data)
-                logger.info(f"Campaign report initialized for {len(prospects_data)} prospects")
             except Exception as report_error:
-                logger.warning(f"Failed to initialize campaign report: {str(report_error)}")
+                logger.warning("Failed to initialize campaign report: %s", report_error)
         
         # Batch size for Retell (concurrency of 15)
         BATCH_SIZE = 15
@@ -115,8 +108,8 @@ async def create_phone_call(prospects):
             end_idx = min(start_idx + BATCH_SIZE, len(valid_prospects))
             batch_prospects = valid_prospects[start_idx:end_idx]
             
-            logger.info(f"Processing batch {batch_num + 1}/{total_batches} with {len(batch_prospects)} prospects")
-            
+            logger.debug("Processing batch %s/%s with %s prospects", batch_num + 1, total_batches, len(batch_prospects))
+
             # Prepare batch call tasks
             tasks = []
             prospect_mapping = {}  # Map phone numbers to prospect objects for database updates
@@ -126,10 +119,10 @@ async def create_phone_call(prospects):
                 
                 # Validate phone number before adding to batch
                 if not is_valid_number(prospect.phoneNumber):
-                    logger.warning(f"Invalid phone number for {prospect_name}: {prospect.phoneNumber} - Skipping prospect")
+                    logger.warning("Invalid phone number for %s: %s - skipping", prospect_name, prospect.phoneNumber)
                     continue
-                
-                logger.info(f"Adding to batch: {prospect.phoneNumber} for {prospect_name}")
+
+                logger.debug("Adding to batch: %s for %s", prospect.phoneNumber, prospect_name)
                 
                 # Create task for batch call
                 # If this is a callback, include latest transcript/summary for context
@@ -154,10 +147,10 @@ async def create_phone_call(prospects):
                                     if call_transcript or call_summary:
                                         previous_transcript = call_transcript
                                         previous_summary = call_summary
-                                        logger.info(f"Found previous call context for callback - transcript length: {len(call_transcript) if call_transcript else 0}, summary: {call_summary[:100] if call_summary else 'None'}...")
+                                        logger.debug("Found previous call context for callback: %s", prospect.phoneNumber)
                                         break
                                 if not previous_transcript and not previous_summary:
-                                    logger.warning(f"No previous transcript or summary found for callback to {prospect.phoneNumber}")
+                                    logger.debug("No previous transcript/summary for callback: %s", prospect.phoneNumber)
                 except Exception as _cb_e:
                     logger.warning(f"Could not enrich callback context for {prospect.phoneNumber}: {_cb_e}")
 
@@ -183,7 +176,7 @@ async def create_phone_call(prospects):
                 }
                 tasks.append(task)
                 prospect_mapping[prospect.phoneNumber] = prospect
-                logger.info(f"Task created for {prospect.phoneNumber}: {task}")
+                logger.debug("Task created for %s", prospect.phoneNumber)
             
             try:
                 # Create batch call
@@ -191,8 +184,8 @@ async def create_phone_call(prospects):
                     from_number=from_number,
                     tasks=tasks
                 )
-                
-                logger.info(f"Batch {batch_num + 1} initiated successfully: {batch_response}")
+                batch_id = getattr(batch_response, "batch_call_id", None) or getattr(batch_response, "id", None) or "?"
+                logger.info("[CALL] Retell batch submitted | source=%s | batch_id=%s | size=%s", source, batch_id, len(batch_prospects))
                 batch_responses.append(batch_response)
                 
                 # Update database for each prospect in this batch
@@ -221,25 +214,24 @@ async def create_phone_call(prospects):
                         }
                     )
                 
-                # Add delay between batches to avoid overwhelming the system
-                if batch_num < total_batches - 1:  # Don't sleep after the last batch
-                    logger.info(f"Waiting 2 seconds before next batch...")
+                if batch_num < total_batches - 1:
+                    logger.debug("Waiting 2s before next batch")
                     time.sleep(2)
-                    
+
             except Exception as batch_error:
-                logger.error(f"Error in batch {batch_num + 1}: {str(batch_error)}")
+                logger.error("[CALL] Batch %s failed: %s", batch_num + 1, batch_error)
                 # Continue with next batch even if one fails
                 continue
         
-        logger.info(f"Completed processing {len(valid_prospects)} prospects in {total_batches} batches")
+        logger.info("[CALL] create_phone_call done | source=%s | prospects=%s | batches=%s", source, len(valid_prospects), total_batches)
         return {
             "total_prospects": len(valid_prospects),
             "total_batches": total_batches,
             "batch_responses": batch_responses
         }
-        
+
     except Exception as e:
-        logger.error(f"Error in create_phone_call: {str(e)}")
+        logger.error("[CALL] create_phone_call error: %s", e)
         raise
 
 
