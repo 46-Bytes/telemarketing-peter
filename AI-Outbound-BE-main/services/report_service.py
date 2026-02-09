@@ -4,6 +4,7 @@ import tempfile
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import shutil
 
 try:
     import xlsxwriter  # type: ignore
@@ -237,7 +238,29 @@ def cleanup_report(campaign_id: str):
 
 
 def finalize_and_send(campaign_id: str, recipient_email: str, subject: Optional[str] = None):
+    """
+    Convert the CSV to XLSX, save a local copy, email it, then clean up temp files.
+    """
+    # Ensure XLSX exists and capture its path
+    xlsx_path = convert_csv_to_xlsx(campaign_id)
+
+    # Save a persistent local copy of the XLSX for inspection
+    try:
+        if xlsx_path and os.path.exists(xlsx_path):
+            # Project root (one level up from this services/ directory)
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            reports_dir = os.path.join(base_dir, "reports")
+            os.makedirs(reports_dir, exist_ok=True)
+
+            dest_path = os.path.join(reports_dir, f"{campaign_id}.xlsx")
+            shutil.copy2(xlsx_path, dest_path)
+            logger.info(f"Saved local copy of campaign report for {campaign_id} at {dest_path}")
+    except Exception as e:
+        logger.warning(f"Failed to save local XLSX copy for campaign {campaign_id}: {str(e)}")
+
+    # Email the report as before
     email_report(campaign_id, recipient_email, subject)
+    # Remove temp files from the OS temp directory
     cleanup_report(campaign_id)
 
 
