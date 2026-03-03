@@ -58,7 +58,7 @@ def calculate_next_retry_time(retry_count: int, last_call_time: datetime) -> Dic
             next_retry_time = last_call_time + timedelta(hours=1)
             
             # Check if next retry time is before 5pm (17:00) on the same day
-            if next_retry_time.hour < 17 and next_retry_time.hour > 10:
+            if next_retry_time.hour < 18 and next_retry_time.hour > 8:
                 return {
                     "date": next_retry_time.strftime("%Y-%m-%d"),
                     "time": next_retry_time.strftime("%H:%M")
@@ -371,7 +371,7 @@ def  get_prospects_for_auto_retry() -> List[Dict]:
         current_date = get_brisbane_date()
         current_time = get_brisbane_time()
         
-        logger.info(f"Checking for auto-retries. Current Brisbane date: {current_date}, time: {current_time}")
+        logger.debug(f"Checking for auto-retries. Current Brisbane date: {current_date}, time: {current_time}")
         
         # Query to find prospects scheduled for auto-retry
         query = {
@@ -413,7 +413,6 @@ def  get_prospects_for_auto_retry() -> List[Dict]:
                         # Only include if current time exactly matches scheduled time
                         if current_time == scheduled_time_norm:
                             prospects.append(p)
-                            logger.info(f"Auto-retry due for {p.get('phoneNumber')} - scheduled at {scheduled_time_norm}, current time {current_time}")
                         else:
                             logger.debug(f"Auto-retry not due for {p.get('phoneNumber')} - scheduled at {scheduled_time_norm}, current time {current_time}")
                 except Exception as e:
@@ -423,7 +422,7 @@ def  get_prospects_for_auto_retry() -> List[Dict]:
                 # No time specified, don't include it
                 logger.debug(f"Skipping prospect {p.get('phoneNumber')} - no autoRetryScheduledTime set")
         
-        logger.info(f"Found {len(prospects)} prospects due for auto-retry")
+        logger.debug(f"Found {len(prospects)} prospects due for auto-retry")
         return prospects
     
     except Exception as e:

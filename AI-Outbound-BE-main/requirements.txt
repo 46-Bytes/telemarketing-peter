@@ -16,3 +16,4 @@ bcrypt==4.0.1
 httpx==0.28.1
 msgraph-core==0.2.2
 cloudinary==1.44.0
+XlsxWriter

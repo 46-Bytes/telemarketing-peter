@@ -196,6 +196,26 @@ def convert_csv_to_xlsx(campaign_id: str) -> Optional[str]:
     return xlsx_out
 
 
+def save_report_locally(campaign_id: str) -> Optional[str]:
+    """
+    Convert the campaign CSV to XLSX and copy it into the project `reports/` folder
+    so it is easy to inspect locally.
+    """
+    xlsx_path = convert_csv_to_xlsx(campaign_id)
+    if not xlsx_path or not os.path.exists(xlsx_path):
+        return None
+
+    # Project root (one level up from this services/ directory)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    reports_dir = os.path.join(base_dir, "reports")
+    os.makedirs(reports_dir, exist_ok=True)
+
+    dest_path = os.path.join(reports_dir, f"{campaign_id}.xlsx")
+    shutil.copy2(xlsx_path, dest_path)
+    logger.info(f"Saved/updated local campaign report for {campaign_id} at {dest_path}")
+    return dest_path
+
+
 def email_report(campaign_id: str, recipient_email: str, subject: Optional[str] = None):
     smtp_user = os.getenv("SMTP_USER_EMAIL")
     smtp_password = os.getenv("SMTP_PASSWORD")

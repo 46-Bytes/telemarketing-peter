@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from typing import List
 from models.prospect import ProspectIn
 from services.call_initiation_service import create_phone_call
-from services.report_service import seed_rows_if_missing, update_dynamic_fields
+from services.report_service import seed_rows_if_missing, update_dynamic_fields, save_report_locally
 from services.prospect_service import (
     upload_prospects_service,
     get_prospects_by_campaign,
@@ -368,14 +368,17 @@ async def add_newowner_contact(request: Request):
     """
     try:
         data = await request.json()
-        campaign_id = data.get("campaignId")
-        phone_number = data.get("phoneNumber")
-        new_owner_name = data.get("newOwnerName")
-        new_number = data.get("newNumber")
-        best_time_to_call = data.get("bestTimeToCall")
+        # Retell may send tool args at top level or nested under "arguments" / "args"
+        payload = data.get("arguments") or data.get("args") or data
+        campaign_id = payload.get("campaign_id") or payload.get("campaignId")
+        phone_number = payload.get("phoneNumber")
+        new_owner_name = payload.get("newOwnerName")
+        new_number = payload.get("newNumber")
+        best_time_to_call = payload.get("bestTimeToCall")
 
         if not campaign_id or not phone_number:
-            raise HTTPException(status_code=400, detail="campaignId and phoneNumber are required")
+            logger.warning("[AddNewOwner] 400 - missing campaign_id or phoneNumber. Raw body keys: %s", list(data.keys()))
+            raise HTTPException(status_code=400, detail="campaign_id and phoneNumber are required")
 
         logger.info(f"AddNewOwner called for campaign {campaign_id}, phone {phone_number}")
         logger.info(f"New owner data - Name: {new_owner_name}, Number: {new_number}, Best time: {best_time_to_call}")
@@ -388,6 +391,14 @@ async def add_newowner_contact(request: Request):
             new_number=new_number,
             best_time_to_call=best_time_to_call,
         )
+
+        # Also generate/update a local XLSX file that you can open easily
+        try:
+            local_path = save_report_locally(campaign_id)
+            if local_path:
+                logger.info(f"Local new-owner report XLSX updated at {local_path}")
+        except Exception as e:
+            logger.warning(f"Failed to generate local XLSX report for campaign {campaign_id}: {e}")
 
         # # Also update the prospect in MongoDB with new owner data
         # from services.prospect_service import get_prospects_collection

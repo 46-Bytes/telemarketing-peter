@@ -15,19 +15,14 @@ def get_scheduled_prospects():
     """Fetch prospects that are scheduled for calls today"""
     try:
         collection = get_prospects_collection()
-        
-        # Get current date in YYYY-MM-DD format using Brisbane timezone
         current_date = get_brisbane_date()
-        logger.info(f"Current Brisbane date for schedule_calls cron job: {current_date}")
-        
-        # Query to find prospects scheduled for today
+
         query = {
             "scheduledCallDate": {"$regex": f"^{current_date}"},
-            "status": "new"  # Only get prospects that haven't been called yet
+            "status": "new"
         }
 
         prospects = list(collection.find(query))
-        logger.info(f"Found {len(prospects)} prospects scheduled for calls today (Brisbane time)")
         return prospects
 
     except Exception as e:
@@ -39,42 +34,38 @@ def get_scheduled_prospects():
 async def process_scheduled_calls():
     """Main function to process scheduled calls"""
     try:
-        # Log timezone information for debugging
-        tz_info = get_brisbane_timezone_info()
-        logger.info(f"Brisbane timezone info: {tz_info}")
-        
+        current_date = get_brisbane_date()
+        current_time = get_brisbane_time()
+
         # Check if current time is within allowed call hours in Brisbane timezone
-        # if not is_within_call_hours():
-        #     logger.info("Current time in Brisbane is outside of allowed call hours (8 AM to 6 PM). Skipping calls.")
-        #     return
+        if not is_within_call_hours():
+            logger.info("[SCHEDULER] Scheduled Calls | time=%s | outside call hours (8AM-6PM) — skipped", current_time)
+            return
 
         # Get prospects scheduled for today
-        prospects = get_scheduled_prospects()
+        all_today = get_scheduled_prospects()
 
-        logger.info(f"Prospects found: {len(prospects) if prospects else 0}")
-        
-        if not prospects:
-            logger.info("No prospects found scheduled for calls today (Brisbane time)")
-            return
+        # Filter by exact time match
+        prospects_to_call = [
+            p for p in all_today
+            if p.get("scheduledCallTime", "") == current_time
+        ]
 
-        # Get current time in HH:MM format using Brisbane timezone
-        current_time = get_brisbane_time()
-        logger.info(f"Current time in Brisbane: {current_time}")
-        
-        # Filter prospects by scheduled call time
-        prospects_to_call = []
-        for prospect in prospects:
-            scheduled_time = prospect.get("scheduledCallTime", "")
-            logger.info(f"Prospect scheduled time: {scheduled_time}, Current time: {current_time}")
-            # If scheduledCallTime matches current time or is empty (backward compatibility)
-            if scheduled_time == current_time:
-                prospects_to_call.append(prospect)
-        
+        # Summary line
+        logger.info("[SCHEDULER] Scheduled Calls | time=%s | date=%s | today_total=%d | matched_now=%d",
+                     current_time, current_date, len(all_today), len(prospects_to_call))
+
         if not prospects_to_call:
-            logger.info(f"No prospects found with scheduled call time matching current Brisbane time ({current_time})")
             return
-            
-        logger.info(f"Found {len(prospects_to_call)} prospects with matching scheduled call time")
+
+        # Log each prospect that will be called
+        for p in prospects_to_call:
+            logger.info("  -> %s | %s | %s | campaign=%s | scheduled=%s",
+                         p.get("name", "Unknown"),
+                         p.get("phoneNumber", "N/A"),
+                         p.get("businessName", "N/A"),
+                         p.get("campaignId", "N/A"),
+                         p.get("scheduledCallTime", "N/A"))
 
         # Convert MongoDB documents to ProspectIn objects
         prospect_objects = [
@@ -83,33 +74,15 @@ async def process_scheduled_calls():
                 phoneNumber=prospect["phoneNumber"],
                 businessName=prospect["businessName"],
                 scheduledCallDate=datetime.fromisoformat(prospect["scheduledCallDate"].replace("Z", "+00:00")),
-                ownerName=prospect.get("ownerName", ""),  # Include the owner name
+                ownerName=prospect.get("ownerName", ""),
                 campaignId=prospect.get("campaignId", ""),
                 scheduledCallTime=prospect.get("scheduledCallTime", "")
             ) for prospect in prospects_to_call
         ]
-
-        # # Seed reporting rows for this campaign before initiating calls
-        # try:
-        #     if prospect_objects:
-        #         campaign_id = prospect_objects[0].campaignId or "unknown"
-        #         seed_rows_if_missing(
-        #             campaign_id=campaign_id,
-        #             prospects=[
-        #                 {
-        #                     "name": p.name or "",
-        #                     "phoneNumber": p.phoneNumber,
-        #                     "businessName": p.businessName or "",
-        #                 }
-        #                 for p in prospect_objects
-        #             ],
-        #         )
-        # except Exception as _e:
-        #     logger.warning(f"Report seed failed for scheduled campaign: {_e}")
 
         logger.info("[CALL] Scheduled calls starting | count=%s", len(prospect_objects))
         await create_phone_call(prospect_objects, source="scheduled")
 
     except Exception as e:
         logger.error(f"Error in process_scheduled_calls: {str(e)}")
-        raise 
+        raise

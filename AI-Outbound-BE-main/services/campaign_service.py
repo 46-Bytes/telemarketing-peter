@@ -154,9 +154,9 @@ def getCampaignUsers():
         print("Getting campaign users")
         campaign_users_collection = get_campaign_users_collection()
         users_collection = get_users_collection()
-        print("Campaign users collection:", campaign_users_collection)
+        # print("Campaign users collection:", campaign_users_collection)
         campaign_users = list(campaign_users_collection.find({"isVisible": True}))
-        print("Campaign users:", campaign_users)
+        # print("Campaign users:", campaign_users)
         
         transformed_campaign_users = []
         for campaign_user in campaign_users:

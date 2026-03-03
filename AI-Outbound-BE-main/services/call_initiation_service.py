@@ -67,6 +67,11 @@ async def create_phone_call(prospects, source="unknown"):
         if not from_number:
             raise ValueError("FROM_NUMBER environment variable not set")
 
+        agent_id_1 = os.getenv("RETELL_AGENT_ID_1")
+        agent_id_2 = os.getenv("RETELL_AGENT_ID_2")
+        if not agent_id_1 or not agent_id_2:
+            raise ValueError("RETELL_AGENT_ID_1 and RETELL_AGENT_ID_2 environment variables must be set")
+
         client = Retell(api_key=api_key)
         current_time = datetime.utcnow().isoformat() + "Z"
 
@@ -97,10 +102,12 @@ async def create_phone_call(prospects, source="unknown"):
         
         # Batch size for Retell (concurrency of 15)
         BATCH_SIZE = 15
+        ALTERNATE_EVERY = 1  # Switch agent every N calls
         total_batches = (len(valid_prospects) + BATCH_SIZE - 1) // BATCH_SIZE
         
         collection = get_prospects_collection()
         batch_responses = []
+        valid_task_idx = 0  # Global counter for agent alternation
         
         # Process prospects in batches
         for batch_num in range(total_batches):
@@ -122,8 +129,13 @@ async def create_phone_call(prospects, source="unknown"):
                     logger.warning("Invalid phone number for %s: %s - skipping", prospect_name, prospect.phoneNumber)
                     continue
 
-                logger.debug("Adding to batch: %s for %s", prospect.phoneNumber, prospect_name)
-                
+                # Determine which agent to use based on global call index
+                agent_cycle = (valid_task_idx // ALTERNATE_EVERY) % 2
+                current_agent_id = agent_id_1 if agent_cycle == 0 else agent_id_2
+                valid_task_idx += 1
+
+                logger.debug("Adding to batch: %s for %s (agent: %s)", prospect.phoneNumber, prospect_name, current_agent_id[-6:])
+
                 # Create task for batch call
                 # If this is a callback, include latest transcript/summary for context
                 previous_transcript = None
@@ -163,6 +175,7 @@ async def create_phone_call(prospects, source="unknown"):
 
                 task = {
                     "to_number": prospect.phoneNumber,
+                    "override_agent_id": current_agent_id,
                     "retell_llm_dynamic_variables": {
                         "user_name": prospect.name or "There",
                         "business_name": prospect.businessName,
@@ -176,7 +189,6 @@ async def create_phone_call(prospects, source="unknown"):
                 }
                 tasks.append(task)
                 prospect_mapping[prospect.phoneNumber] = prospect
-                logger.debug("Task created for %s", prospect.phoneNumber)
             
             try:
                 # Create batch call

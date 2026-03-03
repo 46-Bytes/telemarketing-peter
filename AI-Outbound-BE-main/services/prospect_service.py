@@ -157,7 +157,7 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
         "message": "Prospects Added successfully",
     }
 
-from services.report_service import update_outcome_fields, update_dynamic_fields, are_all_outcomes_complete, finalize_and_send
+from services.report_service import update_outcome_fields, update_dynamic_fields, are_all_outcomes_complete, finalize_and_send, save_report_locally
 from services.auto_retry_service import schedule_auto_retry, reset_auto_retry_fields_on_success
 
 
@@ -577,14 +577,38 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                 logger.info(f"Updating report for campaign {campaign_id}: connection={call_connection}, outcome={call_outcome}")
                 update_outcome_fields(campaign_id, to_number, call_connection, call_outcome)
 
+                # Save an incremental local XLSX after every call outcome update
+                try:
+                    save_report_locally(campaign_id)
+                except Exception as _local_e:
+                    logger.warning(f"Failed to save local report copy for campaign {campaign_id}: {_local_e}")
+
                 # Finalize/email if all outcomes complete
                 try:
                     if are_all_outcomes_complete(campaign_id):
                         logger.info(f"All calls complete for campaign {campaign_id}. Sending report...")
-                        recipient = os.getenv('REPORT_RECIPIENT_EMAIL') or os.getenv('SMTP_USER_EMAIL')
+
+                        # Look up the campaign advisor's email from the database
+                        recipient = None
+                        try:
+                            from config.database import get_campaign_users_collection, get_users_collection
+                            from bson import ObjectId as _ObjId
+                            campaign_doc = get_campaign_users_collection().find_one({"_id": _ObjId(campaign_id)})
+                            if campaign_doc and campaign_doc.get("users"):
+                                advisor = get_users_collection().find_one({"_id": _ObjId(campaign_doc["users"])})
+                                if advisor and advisor.get("email"):
+                                    recipient = advisor["email"]
+                                    logger.info(f"Report will be sent to campaign advisor: {recipient}")
+                        except Exception as _lookup_e:
+                            logger.warning(f"Could not look up campaign advisor email: {_lookup_e}")
+
+                        # Fall back to env var if DB lookup didn't yield an email
+                        if not recipient:
+                            recipient = os.getenv('REPORT_RECIPIENT_EMAIL') or os.getenv('SMTP_USER_EMAIL')
+
                         if recipient:
                             finalize_and_send(campaign_id, recipient, subject=f"Campaign {campaign_id} Report")
-                            logger.info(f"Report sent successfully for campaign {campaign_id}")
+                            logger.info(f"Report sent successfully for campaign {campaign_id} to {recipient}")
                         else:
                             logger.warning(f"No recipient email configured for campaign {campaign_id} report")
                 except Exception as _e:
