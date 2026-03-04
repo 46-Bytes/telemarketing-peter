@@ -9,6 +9,7 @@ from config.database import get_users_collection as db_get_users_collection
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import smtplib
+import threading
 
 BENCHMARK_API_PATH = os.getenv("BENCHMARK_API_PATH")
 
@@ -387,179 +388,180 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
 
     print("[DEBUG] create_benchmark_appointment result:", result)
 
-    # Get super admin users
-    users_collection = db_get_users_collection()
-    super_admins = list(users_collection.find({"role": "super_admin"}))
+    # Build response immediately — don't make the user wait for emails
+    response = {
+        "message": f"Timeslot is available. {meeting_type} created successfully."
+    }
+    if isinstance(result, dict):
+        if "appointmentid" in result:
+            response["appointmentId"] = result["appointmentid"]
+        if "meetingLink" in result:
+            response["meetingLink"] = result["meetingLink"]
+        if "event" in result:
+            response["event"] = result["event"]
 
-    # Set up SMTP credentials
-    smtp_user = os.getenv("SMTP_USER_EMAIL")
-    smtp_password = os.getenv("SMTP_PASSWORD")
+    # Fire off emails + DB update in a background thread so the caller gets an instant response
+    threading.Thread(
+        target=_send_appointment_emails_and_update,
+        args=(
+            appointment_type, user_name, user_email, start_time, end_time,
+            prospect_name, prospect_business_name, prospect_phone_number,
+            prospect_campaign_name, prospect_email, userEmail,
+            latest_summary, latest_transcript, phone_number, campaign_id,
+        ),
+        daemon=True,
+    ).start()
+    logger.info("[APPOINTMENT] Response returned immediately — emails + DB update running in background")
 
-    if not smtp_user or not smtp_password:
-        logger.error("SMTP credentials not configured")
-        return {"status": "error", "message": "Email service not configured"}
+    return response
 
-    # Helper to build the admin/broker email body
-    def _build_internal_email_body(recipient_name: str):
-        body = f"""
-            <html>
-        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; color: #333;">
 
-        <!-- Logo Section -->
-        <div style="text-align: center; margin-bottom: 30px;">
-            <img src="https://www.benchmarkbusiness.com.au/wp-content/uploads/2024/03/Benchmark-Web-Logo-2024-Black-text.png" 
-                alt="Benchmark Business Logo" style="max-width: 250px; height: auto;">
-        </div>
-
-        <!-- Header -->
-        <h2 style="color: #4a6fa5;">Appointment Confirmation</h2>
-
-        <!-- Intro -->
-        <p>Dear {recipient_name},</p>
-        <p>
-            A new <strong>{appointment_type}</strong> appointment has been scheduled.
-        </p>
-
-        <!-- Appointment Details Box -->
-        <div style="background-color: #f7f9fc; border-left: 4px solid #4a6fa5; padding: 15px 20px; margin: 25px 0;">
-            <h3 style="margin-top: 0; color: #4a6fa5;">Appointment Details</h3>
-            
-            <p><strong>Date & Time:</strong> {start_time[:10]} {start_time[11:16]} to {end_time[:10]} {end_time[11:16]}</p>
-            <p><strong>Scheduled By:</strong> {user_name} ({user_email})</p>
-            <p><strong>Prospect Name:</strong> {prospect_name}</p>
-            <p><strong>Prospect Email:</strong> {prospect_email or userEmail}</p>
-            <p><strong>Prospect Phone:</strong> {prospect_phone_number}</p>
-            <p><strong>Campaign Name:</strong> {prospect_campaign_name}</p>
-            <p><strong>Business Name:</strong> {prospect_business_name}</p>
-        </div>
-
-        <!-- Conversation Context -->
-        """
-
-        # Add recent call summary and transcript for admin/broker review
-        if latest_summary or latest_transcript:
-            body += """
-        <div style="background-color: #f9f9fb; border-left: 4px solid #888; padding: 15px 20px; margin: 25px 0;">
-            <h3 style="margin-top: 0; color: #333;">Recent Conversation Context</h3>
-            <p style="margin-top: 0;">Below is the most recent call context with this prospect so you can review before the meeting.</p>
-            """
-            if latest_summary:
-                body += f"""
-            <p><strong>Call Summary:</strong></p>
-            <p style="white-space: pre-wrap; font-size: 0.95em; color: #333;">{latest_summary}</p>
-                """
-            if latest_transcript:
-                transcript_for_email = latest_transcript
-                max_len_email = 8000
-                if isinstance(transcript_for_email, str) and len(transcript_for_email) > max_len_email:
-                    transcript_for_email = transcript_for_email[:max_len_email] + "... (truncated)"
-                body += f"""
-            <p><strong>Full Transcript (latest call):</strong></p>
-            <pre style="white-space: pre-wrap; font-size: 0.9em; color: #444; background-color: #f1f1f5; padding: 10px; border-radius: 4px; overflow-x: auto;">{transcript_for_email}</pre>
-                """
-            body += """
-        </div>
-            """
-
-        body += """
-
-        <!-- Footer -->
-        <p>Please attend or follow up as needed.</p>
-
-        <p>Regards.</p>
-
-        </body>
-        </html>
-        """
-
-        return body
-
-    # Prepare the email content for super admins
-    for admin in super_admins:
-        admin_email = admin.get("email")
-        admin_name = admin.get("name", "Team")
-
-        msg = MIMEMultipart()
-        msg['From'] = smtp_user
-        msg['To'] = admin_email
-        msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment Confirmation"
-
-        # Construct the email body
-        body = _build_internal_email_body(admin_name)
-
-        msg.attach(MIMEText(body, 'html'))
-
-        # Send email
-        try:
-            logger.info(f"Sending appointment confirmation email to {admin_email}")
-            server = smtplib.SMTP("smtp.gmail.com", 587)
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.sendmail(smtp_user, admin_email, msg.as_string())
-            server.quit()
-            logger.info(f"Appointment confirmation email successfully sent to {admin_email}")
-        except Exception as e:
-            logger.error(f"Failed to send email to {admin_email}: {e}")
- 
-    # Also send the same internal email to the broker/advisor (user_email) so they
-    # have the transcript and context in their inbox as well as in the calendar event.
+def _send_appointment_emails_and_update(
+    appointment_type, user_name, user_email, start_time, end_time,
+    prospect_name, prospect_business_name, prospect_phone_number,
+    prospect_campaign_name, prospect_email, userEmail,
+    latest_summary, latest_transcript, phone_number, campaign_id,
+):
+    """Send confirmation emails to admins/broker and update prospect record. Runs in a background thread."""
     try:
-        broker_msg = MIMEMultipart()
-        broker_msg['From'] = smtp_user
-        broker_msg['To'] = user_email
-        broker_msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment – Prospect Details & Transcript"
-        broker_body = _build_internal_email_body(user_name)
-        broker_msg.attach(MIMEText(broker_body, 'html'))
+        # --- SMTP credentials ---
+        smtp_user = os.getenv("SMTP_USER_EMAIL")
+        smtp_password = os.getenv("SMTP_PASSWORD")
 
-        logger.info(f"Sending appointment context email to broker/advisor {user_email}")
-        broker_server = smtplib.SMTP("smtp.gmail.com", 587)
-        broker_server.starttls()
-        broker_server.login(smtp_user, smtp_password)
-        broker_server.sendmail(smtp_user, user_email, broker_msg.as_string())
-        broker_server.quit()
-        logger.info(f"Appointment context email successfully sent to broker/advisor {user_email}")
+        if not smtp_user or not smtp_password:
+            logger.error("[BG-EMAIL] SMTP credentials not configured — skipping emails")
+            # Still update the prospect record below
+        else:
+            # --- Build email body helper ---
+            def _build_internal_email_body(recipient_name: str):
+                body = f"""
+                    <html>
+                <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #ffffff; color: #333;">
+
+                <!-- Logo Section -->
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <img src="https://www.benchmarkbusiness.com.au/wp-content/uploads/2024/03/Benchmark-Web-Logo-2024-Black-text.png"
+                        alt="Benchmark Business Logo" style="max-width: 250px; height: auto;">
+                </div>
+
+                <!-- Header -->
+                <h2 style="color: #4a6fa5;">Appointment Confirmation</h2>
+
+                <!-- Intro -->
+                <p>Dear {recipient_name},</p>
+                <p>
+                    A new <strong>{appointment_type}</strong> appointment has been scheduled.
+                </p>
+
+                <!-- Appointment Details Box -->
+                <div style="background-color: #f7f9fc; border-left: 4px solid #4a6fa5; padding: 15px 20px; margin: 25px 0;">
+                    <h3 style="margin-top: 0; color: #4a6fa5;">Appointment Details</h3>
+
+                    <p><strong>Date & Time:</strong> {start_time[:10]} {start_time[11:16]} to {end_time[:10]} {end_time[11:16]}</p>
+                    <p><strong>Scheduled By:</strong> {user_name} ({user_email})</p>
+                    <p><strong>Prospect Name:</strong> {prospect_name}</p>
+                    <p><strong>Prospect Email:</strong> {prospect_email or userEmail}</p>
+                    <p><strong>Prospect Phone:</strong> {prospect_phone_number}</p>
+                    <p><strong>Campaign Name:</strong> {prospect_campaign_name}</p>
+                    <p><strong>Business Name:</strong> {prospect_business_name}</p>
+                </div>
+
+                <!-- Conversation Context -->
+                """
+
+                if latest_summary or latest_transcript:
+                    body += """
+                <div style="background-color: #f9f9fb; border-left: 4px solid #888; padding: 15px 20px; margin: 25px 0;">
+                    <h3 style="margin-top: 0; color: #333;">Recent Conversation Context</h3>
+                    <p style="margin-top: 0;">Below is the most recent call context with this prospect so you can review before the meeting.</p>
+                    """
+                    if latest_summary:
+                        body += f"""
+                    <p><strong>Call Summary:</strong></p>
+                    <p style="white-space: pre-wrap; font-size: 0.95em; color: #333;">{latest_summary}</p>
+                        """
+                    if latest_transcript:
+                        transcript_for_email = latest_transcript
+                        max_len_email = 8000
+                        if isinstance(transcript_for_email, str) and len(transcript_for_email) > max_len_email:
+                            transcript_for_email = transcript_for_email[:max_len_email] + "... (truncated)"
+                        body += f"""
+                    <p><strong>Full Transcript (latest call):</strong></p>
+                    <pre style="white-space: pre-wrap; font-size: 0.9em; color: #444; background-color: #f1f1f5; padding: 10px; border-radius: 4px; overflow-x: auto;">{transcript_for_email}</pre>
+                        """
+                    body += """
+                </div>
+                    """
+
+                body += """
+
+                <!-- Footer -->
+                <p>Please attend or follow up as needed.</p>
+
+                <p>Regards.</p>
+
+                </body>
+                </html>
+                """
+
+                return body
+
+            # --- Send emails to super admins ---
+            users_collection = db_get_users_collection()
+            super_admins = list(users_collection.find({"role": "super_admin"}))
+
+            for admin in super_admins:
+                admin_email = admin.get("email")
+                admin_name = admin.get("name", "Team")
+
+                msg = MIMEMultipart()
+                msg['From'] = smtp_user
+                msg['To'] = admin_email
+                msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment Confirmation"
+                msg.attach(MIMEText(_build_internal_email_body(admin_name), 'html'))
+
+                try:
+                    logger.info(f"[BG-EMAIL] Sending appointment confirmation to {admin_email}")
+                    server = smtplib.SMTP("smtp.gmail.com", 587)
+                    server.starttls()
+                    server.login(smtp_user, smtp_password)
+                    server.sendmail(smtp_user, admin_email, msg.as_string())
+                    server.quit()
+                    logger.info(f"[BG-EMAIL] Sent to {admin_email}")
+                except Exception as e:
+                    logger.error(f"[BG-EMAIL] Failed to send to {admin_email}: {e}")
+
+            # --- Send email to broker/advisor ---
+            try:
+                broker_msg = MIMEMultipart()
+                broker_msg['From'] = smtp_user
+                broker_msg['To'] = user_email
+                broker_msg['Subject'] = f"{user_name} {appointment_type.capitalize()} Appointment – Prospect Details & Transcript"
+                broker_msg.attach(MIMEText(_build_internal_email_body(user_name), 'html'))
+
+                logger.info(f"[BG-EMAIL] Sending appointment context to broker/advisor {user_email}")
+                broker_server = smtplib.SMTP("smtp.gmail.com", 587)
+                broker_server.starttls()
+                broker_server.login(smtp_user, smtp_password)
+                broker_server.sendmail(smtp_user, user_email, broker_msg.as_string())
+                broker_server.quit()
+                logger.info(f"[BG-EMAIL] Sent to broker/advisor {user_email}")
+            except Exception as e:
+                logger.error(f"[BG-EMAIL] Failed to send to broker/advisor {user_email}: {e}")
+
+        # --- Update prospect record ---
+        if phone_number:
+            from services.prospect_service import update_prospect_appointment
+
+            update_prospect_appointment(
+                phone_number=phone_number,
+                campaign_id=campaign_id,
+                appointment_interest=True,
+                appointment_date_time=start_time,
+                meeting_link="",
+                appointment_type=appointment_type,
+            )
+            logger.info(f"[BG-EMAIL] Prospect appointment updated — phone={phone_number}, campaign={campaign_id}")
+
     except Exception as e:
-        logger.error(f"Failed to send appointment context email to broker/advisor {user_email}: {e}")
-
-    if phone_number:
-        from services.prospect_service import update_prospect_appointment
-
-        appointment_update = update_prospect_appointment(
-            phone_number=phone_number,
-            campaign_id=campaign_id,
-            appointment_interest=True,
-            appointment_date_time=start_time,
-            meeting_link="",  
-            appointment_type=appointment_type
-        )
-        print("[DEBUG] appointment_update:", appointment_update)
-        logger.info(f"[PROSPECT] Prospect appointment updated successfully - Phone: {phone_number}, Campaign ID: {campaign_id}")
-
-        # Send appointment confirmation email
-        try:
-            from services.appointment_email_service import send_appointment_confirmation_email
-
-            # email_result = send_appointment_confirmation_email(
-            #     phone_number=phone_number,
-            #     campaign_id=campaign_id
-            # )
-            print("[DEBUG] email_result:")
-            # logger.info(f"[EMAIL] Appointment confirmation email sent successfully - Phone: {phone_number}, Campaign ID: {campaign_id}")
-        except Exception as e:
-            logger.error(f"[EMAIL] Failed to send appointment confirmation email - Phone: {phone_number}, Campaign ID: {campaign_id}, Error: {str(e)}")
-
-        # Prepare response
-        response = {
-            "message": f"Timeslot is available. {meeting_type} created successfully."
-        }
-        # If result contains a meeting link or event, add them
-        if isinstance(result, dict):
-            if "appointmentid" in result:
-                response["appointmentId"] = result["appointmentid"]
-            if "meetingLink" in result:
-                response["meetingLink"] = result["meetingLink"]
-            if "event" in result:
-                response["event"] = result["event"]
-        return response
-
-    return result
+        logger.error(f"[BG-EMAIL] Background email/update failed: {e}", exc_info=True)

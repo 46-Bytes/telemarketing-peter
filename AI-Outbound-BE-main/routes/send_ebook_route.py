@@ -1,4 +1,5 @@
 import os
+import threading
 from fastapi import APIRouter, HTTPException, Request
 from services.send_ebook_service import send_ebook_email
 import logging
@@ -64,14 +65,16 @@ async def send_ebook(request: Request):
                     
                 logger.info(f"Using converted URL: {ebook_url}")
             
-            # Send the email with the ebook
-            send_ebook_email(email, ebook_url)
+            # Send the email with the ebook in background so the caller gets an instant response
+            threading.Thread(target=send_ebook_email, args=(email, ebook_url), daemon=True).start()
+            logger.info(f"[EBOOK] Response returned immediately — email sending in background to {email}")
             return {"message": "Email sent successfully", "ebook_path": ebook_path}
         else:
             # Fallback to default PDF if user or ebook path not found
             logger.warning(f"Ebook path not found for user. Using default PDF.")
             default_pdf = os.getenv("DEFAULT_PDF_URL")
-            send_ebook_email(email, default_pdf)
+            threading.Thread(target=send_ebook_email, args=(email, default_pdf), daemon=True).start()
+            logger.info(f"[EBOOK] Response returned immediately — default PDF email sending in background to {email}")
             return {"message": "Email sent with default PDF", "ebook_path": default_pdf}
             
     except PyMongoError as e:
