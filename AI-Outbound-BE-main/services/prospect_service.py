@@ -353,9 +353,10 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                 call_back_time = new_call_back_time if new_call_back_time is not None else existing_callback_time
                 is_callback = call_back_request
             else:
-                call_back_date = existing_callback_date
-                call_back_time = existing_callback_time
-                is_callback = existing_is_callback
+                # No new callback requested — clear the old flags
+                call_back_date = None
+                call_back_time = None
+                is_callback = False
         else:
             call_back_date = new_call_back_date
             call_back_time = new_call_back_time
@@ -485,8 +486,7 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             
             # Combine prospect and call updates
             update_dict = {**prospect_update_dict, **call_update_dict}
-            update_dict["auditLogs.$[log].details.status"] = audit_log["details"]["status"]
-            
+
             # Update the specific call record in the calls array and add audit log
             result = collection.update_one(
                 {
@@ -497,10 +497,7 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                 {
                     "$set": update_dict,
                     "$push": {"auditLogs": audit_log}
-                },
-                array_filters=[
-                    {"log.details.callId": call_id}
-                ]
+                }
             )
             
             # Increment callBackCount if needed

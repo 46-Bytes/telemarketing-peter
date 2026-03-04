@@ -41,7 +41,7 @@ def get_prospects_for_callback():
                 except Exception as e:
                     logger.error(f"Error parsing callback time for prospect {p.get('phoneNumber', 'N/A')}: {str(e)}")
 
-        return prospects, len(candidates)
+        return prospects, candidates
 
     except Exception as e:
         logger.error(f"Error fetching prospects for callback: {str(e)}")
@@ -56,21 +56,22 @@ async def schedule_callbacks():
         prospects, candidates_today = get_prospects_for_callback()
 
         # Summary line
-        logger.info("[SCHEDULER] Callbacks | time=%s | date=%s | candidates_today=%d | matched_now=%d",
-                     current_time, current_date, candidates_today, len(prospects))
+        logger.info("[SCHEDULER] Callbacks — User-requested callbacks to be fulfilled | time=%s | date=%s | candidates_today=%d | matched_now=%d",
+                     current_time, current_date, len(candidates_today), len(prospects))
+
+        # Log all callback candidates for today
+        matched_phones = {p.get("phoneNumber") for p in prospects}
+        for p in candidates_today:
+            marker = " << CALLING NOW" if p.get("phoneNumber") in matched_phones else ""
+            logger.info("  -> name=%s | phone=%s | campaignId=%s | time=%s%s",
+                         p.get("name", "Unknown"),
+                         p.get("phoneNumber", "N/A"),
+                         p.get("campaignId", "N/A"),
+                         p.get("callBackTime", "N/A"),
+                         marker)
 
         if not prospects:
             return
-
-        # Log each prospect that will be called back
-        for p in prospects:
-            logger.info("  -> %s | %s | %s | campaign=%s | callback=%s %s",
-                         p.get("name", "Unknown"),
-                         p.get("phoneNumber", "N/A"),
-                         p.get("businessName", "N/A"),
-                         p.get("campaignId", "N/A"),
-                         p.get("callBackDate", "N/A"),
-                         p.get("callBackTime", "N/A"))
 
         # Convert MongoDB documents to ProspectIn objects
         prospect_objects = [
@@ -86,6 +87,15 @@ async def schedule_callbacks():
                 callBackTime=prospect.get("callBackTime"),
             ) for prospect in prospects
         ]
+
+        # Clear callback flags BEFORE making the call to prevent duplicate calls
+        collection = get_prospects_collection()
+        for prospect in prospects:
+            collection.update_one(
+                {"phoneNumber": prospect["phoneNumber"], "campaignId": prospect.get("campaignId")},
+                {"$set": {"isCallBack": False, "callBackDate": None, "callBackTime": None}}
+            )
+        logger.info("[CALL] Callback flags cleared for %d prospects", len(prospects))
 
         logger.info("[CALL] Callback scheduler starting | count=%s", len(prospect_objects))
         result = await create_phone_call(prospect_objects, source="callback")

@@ -52,20 +52,22 @@ async def process_scheduled_calls():
         ]
 
         # Summary line
-        logger.info("[SCHEDULER] Scheduled Calls | time=%s | date=%s | today_total=%d | matched_now=%d",
+        logger.info("[SCHEDULER] Scheduled Calls — First-time outbound calls to new prospects | time=%s | date=%s | today_total=%d | matched_now=%d",
                      current_time, current_date, len(all_today), len(prospects_to_call))
+
+        # Log all prospects scheduled for today
+        for p in all_today:
+            scheduled_time = p.get("scheduledCallTime", "N/A")
+            marker = " << CALLING NOW" if scheduled_time == current_time else ""
+            logger.info("  -> name=%s | phone=%s | campaignId=%s | time=%s%s",
+                         p.get("name", "Unknown"),
+                         p.get("phoneNumber", "N/A"),
+                         p.get("campaignId", "N/A"),
+                         scheduled_time,
+                         marker)
 
         if not prospects_to_call:
             return
-
-        # Log each prospect that will be called
-        for p in prospects_to_call:
-            logger.info("  -> %s | %s | %s | campaign=%s | scheduled=%s",
-                         p.get("name", "Unknown"),
-                         p.get("phoneNumber", "N/A"),
-                         p.get("businessName", "N/A"),
-                         p.get("campaignId", "N/A"),
-                         p.get("scheduledCallTime", "N/A"))
 
         # Convert MongoDB documents to ProspectIn objects
         prospect_objects = [

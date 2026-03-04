@@ -32,24 +32,25 @@ async def process_auto_retries():
         current_time = get_brisbane_time()
 
         # Get prospects due for auto-retry
-        prospects = get_prospects_for_auto_retry()
+        prospects, candidates_today = get_prospects_for_auto_retry()
 
         # Summary line
-        logger.info("[SCHEDULER] Auto-Retries | time=%s | date=%s | found=%d",
-                     current_time, current_date, len(prospects))
+        logger.info("[SCHEDULER] Auto-Retries — Automatic retries for prospects who didn't pick up | time=%s | date=%s | candidates_today=%d | matched_now=%d",
+                     current_time, current_date, len(candidates_today), len(prospects))
+
+        # Log all auto-retry candidates for today
+        matched_phones = {p.get("phoneNumber") for p in prospects}
+        for p in candidates_today:
+            marker = " << CALLING NOW" if p.get("phoneNumber") in matched_phones else ""
+            logger.info("  -> name=%s | phone=%s | campaignId=%s | time=%s%s",
+                         p.get("name", "Unknown"),
+                         p.get("phoneNumber", "N/A"),
+                         p.get("campaignId", "N/A"),
+                         p.get("autoRetryScheduledTime", "N/A"),
+                         marker)
 
         if not prospects:
             return
-
-        # Log each prospect that will be retried
-        for p in prospects:
-            logger.info("  -> %s | %s | %s | campaign=%s | attempt=#%d | scheduled=%s",
-                         p.get("name", "Unknown"),
-                         p.get("phoneNumber", "N/A"),
-                         p.get("businessName", "N/A"),
-                         p.get("campaignId", "N/A"),
-                         p.get("autoRetryCount", 0),
-                         p.get("autoRetryScheduledTime", "N/A"))
 
         # Convert MongoDB documents to ProspectIn objects
         prospect_objects = []

@@ -357,12 +357,12 @@ def send_retry_failure_email(prospect: Dict):
         logger.error(f"Error sending retry failure email: {str(e)}")
 
 
-def  get_prospects_for_auto_retry() -> List[Dict]:
+def get_prospects_for_auto_retry():
     """
     Fetch prospects that are due for automatic retry based on scheduled date/time.
-    
+
     Returns:
-        list: List of prospect documents that need to be retried
+        tuple: (matched_prospects, all_candidates_today)
     """
     try:
         collection = get_prospects_collection()
@@ -423,11 +423,11 @@ def  get_prospects_for_auto_retry() -> List[Dict]:
                 logger.debug(f"Skipping prospect {p.get('phoneNumber')} - no autoRetryScheduledTime set")
         
         logger.debug(f"Found {len(prospects)} prospects due for auto-retry")
-        return prospects
-    
+        return prospects, candidates
+
     except Exception as e:
         logger.error(f"Error fetching prospects for auto-retry: {str(e)}")
-        return []
+        return [], []
 
 
 def reset_auto_retry_fields_on_success(phone_number: str, campaign_id: str):
