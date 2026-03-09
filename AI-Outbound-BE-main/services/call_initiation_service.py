@@ -102,7 +102,7 @@ async def create_phone_call(prospects, source="unknown"):
         
         # Batch size for Retell (concurrency of 15)
         BATCH_SIZE = 15
-        ALTERNATE_EVERY = 1  # Switch agent every N calls
+        ALTERNATE_EVERY = 10  # Switch agent every N calls
         total_batches = (len(valid_prospects) + BATCH_SIZE - 1) // BATCH_SIZE
         
         collection = get_prospects_collection()
