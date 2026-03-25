@@ -75,6 +75,7 @@ async def upload_prospects(request: Request):
         
         # Get the scheduled call date from the request
         scheduled_call_date = data.get('scheduledCallDate', '')  # Use get with default value
+        scheduled_call_time = data.get('scheduledCallTime', '')  # Default to empty string
         campaign_name = data.get('campaignName', '')  # Use get with default value
         campaign_id = data.get('campaignId', '')  # Get campaign ID from request
         owner_name = data.get('ownerName', 'Unknown User')  # Get owner name from request
@@ -141,8 +142,12 @@ async def upload_prospects(request: Request):
                     })
                     continue
                 
+                # Handle name - allow prospects without names
+                raw_name = user.get('name', '')
+                prospect_name = raw_name.strip() if raw_name else None
+
                 prospect = ProspectIn(
-                    name=user.get('name', '').strip() if user.get('name') else None,
+                    name=prospect_name,
                     phoneNumber=formatted_phone,
                     businessName=user.get('businessName', '').strip(),
                     email=user.get('email', '').strip(),
@@ -153,6 +158,8 @@ async def upload_prospects(request: Request):
                     scheduledCallTime=scheduled_call_time
                 )
                 prospects_list.append(prospect)
+                logger.info(f"Created prospect: name='{prospect_name}', phone={formatted_phone}, business='{user.get('businessName', '')}'")
+
             except Exception as e:
                 print(f"Error creating prospect: {str(e)}")
                 skipped_prospects.append({

@@ -2,9 +2,10 @@ import axios from "axios";
 import { Campaign } from "../types/campaign";
 
 interface CsvData {
-  name?: string;
+  name: string;
   phoneNumber: string;
   businessName?: string;
+  email?: string;
   campaignName?: string;
   campaignId?: string;
 }

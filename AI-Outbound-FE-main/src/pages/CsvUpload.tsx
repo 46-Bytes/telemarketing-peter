@@ -8,9 +8,10 @@ import { Navigate } from 'react-router-dom';
 import { Campaign } from '../types/campaign';
 
 interface CsvData {
-    name?: string;
+    name: string;
     phoneNumber: string;
     businessName: string;
+    email?: string;
 }
 
 const CsvUpload: React.FC = () => {
@@ -132,11 +133,29 @@ const CsvUpload: React.FC = () => {
 
     Papa.parse(file, {
       header: true,
+      skipEmptyLines: true,
+      transformHeader: (header: string) => {
+        // Clean up header names - remove extra quotes and trim whitespace
+        return header.replace(/^["'\s]+|["'\s]+$/g, '').trim();
+      },
       complete: async (results) => {
         try {
-          const parsedData = results.data as CsvData[];
-          setCsvData(parsedData);
-    
+          const parsedData = results.data as Record<string, string>[];
+          // Keep all rows that have a phone number, even if name is empty/missing
+          const validData: CsvData[] = parsedData
+            .filter(row => {
+              const phone = (row.phoneNumber || '').toString().trim();
+              return phone.length > 0;
+            })
+            .map(row => ({
+              name: (row.name || '').toString().trim(),
+              phoneNumber: (row.phoneNumber || '').toString().trim(),
+              businessName: (row.businessName || '').toString().trim(),
+              email: (row.email || '').toString().trim(),
+            }));
+          console.log(`Parsed ${parsedData.length} rows, ${validData.length} valid prospects (including ${validData.filter(r => !r.name).length} without names)`);
+          setCsvData(validData);
+
           setIsUploading(false);
           setUploadStatus('success');
         } catch (error) {
@@ -411,14 +430,16 @@ const CsvUpload: React.FC = () => {
                     <th className="px-4 py-2 text-left text-sm font-semibold text-gray-700">Name</th>
                     <th className="px-4 py-2 text-left text-sm font-semibold text-gray-700">Phone Number</th>
                     <th className="px-4 py-2 text-left text-sm font-semibold text-gray-700">Business Name</th>
+                    <th className="px-4 py-2 text-left text-sm font-semibold text-gray-700">Email</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {csvData.slice(0, 10).map((data, index) => (
                     <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <td className="px-4 py-2 text-sm text-gray-900">{data.name}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900">{data.name || '-'}</td>
                       <td className="px-4 py-2 text-sm text-gray-900">{data.phoneNumber}</td>
                       <td className="px-4 py-2 text-sm text-gray-900">{data.businessName}</td>
+                      <td className="px-4 py-2 text-sm text-gray-900">{data.email || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
