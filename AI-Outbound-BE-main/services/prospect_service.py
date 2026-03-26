@@ -542,37 +542,20 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             # Determine call outcome (only for successful connections)
             call_outcome = ""
             if call_connection == "successful":
-                # Check explicit outcome first
+                # Use the explicit call_outcome from the AI analysis if available
                 explicit_outcome = analysis.get('call_outcome')
-                
+
                 if explicit_outcome:
                     call_outcome = explicit_outcome
+                # Use structured boolean fields from the webhook — no keyword guessing
+                elif analysis.get('appointment_interest') is True:
+                    call_outcome = 'meeting booked'
+                elif analysis.get('ebook') is True:
+                    call_outcome = 'interested in ebook'
+                elif analysis.get('call_back_request') is True:
+                    call_outcome = 'callback requested'
                 else:
-                    # Infer from summary and other fields
-                    summary = (analysis.get('call_summary_info') or '').lower()
-                    transcript = (call_data.get('transcript') or '').lower()
-                    
-                    # Check for appointment booking
-                    if (analysis.get('appointment_interest') is True or 
-                        'meeting' in summary or 'appointment' in summary or
-                        'book' in summary):
-                        call_outcome = 'meeting booked'
-                    # Check for ebook interest
-                    elif (analysis.get('ebook') is True or 
-                          'ebook' in summary):
-                        call_outcome = 'interested in ebook'
-                    # Check for no interest
-                    elif ('no interest' in summary or 'not interested' in summary):
-                        call_outcome = 'no interest'
-                    # Check for hung up
-                    elif ('hung up' in summary or 'disconnected' in summary):
-                        call_outcome = 'user hung up'
-                    # Check if they requested callback
-                    elif analysis.get('call_back_request') is True:
-                        call_outcome = 'callback requested'
-                    else:
-                        # Default to successful if call ended normally
-                        call_outcome = 'successful'
+                    call_outcome = 'successful'
 
             if campaign_id:
                 logger.info(f"Updating report for campaign {campaign_id}: connection={call_connection}, outcome={call_outcome}")
@@ -589,27 +572,38 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                     if are_all_outcomes_complete(campaign_id):
                         logger.info(f"All calls complete for campaign {campaign_id}. Sending report...")
 
-                        # Look up the campaign advisor's email from the database
-                        recipient = None
+                        recipients = []
                         try:
                             from config.database import get_campaign_users_collection, get_users_collection
                             from bson import ObjectId as _ObjId
+
+                            # 1. Look up the broker (campaign advisor) email
                             campaign_doc = get_campaign_users_collection().find_one({"_id": _ObjId(campaign_id)})
                             if campaign_doc and campaign_doc.get("users"):
                                 advisor = get_users_collection().find_one({"_id": _ObjId(campaign_doc["users"])})
                                 if advisor and advisor.get("email"):
-                                    recipient = advisor["email"]
-                                    logger.info(f"Report will be sent to campaign advisor: {recipient}")
+                                    recipients.append(advisor["email"])
+                                    logger.info(f"Report will be sent to broker: {advisor['email']}")
+
+                            # 2. Look up all super_admin emails
+                            super_admins = list(get_users_collection().find({"role": "super_admin"}))
+                            for admin in super_admins:
+                                admin_email = admin.get("email")
+                                if admin_email and admin_email not in recipients:
+                                    recipients.append(admin_email)
+                                    logger.info(f"Report will be sent to admin: {admin_email}")
                         except Exception as _lookup_e:
-                            logger.warning(f"Could not look up campaign advisor email: {_lookup_e}")
+                            logger.warning(f"Could not look up recipient emails: {_lookup_e}")
 
-                        # Fall back to env var if DB lookup didn't yield an email
-                        if not recipient:
-                            recipient = os.getenv('REPORT_RECIPIENT_EMAIL') or os.getenv('SMTP_USER_EMAIL')
+                        # Fall back to env var if no recipients found
+                        if not recipients:
+                            fallback = os.getenv('REPORT_RECIPIENT_EMAIL') or os.getenv('SMTP_USER_EMAIL')
+                            if fallback:
+                                recipients.append(fallback)
 
-                        if recipient:
-                            finalize_and_send(campaign_id, recipient, subject=f"Campaign {campaign_id} Report")
-                            logger.info(f"Report sent successfully for campaign {campaign_id} to {recipient}")
+                        if recipients:
+                            finalize_and_send(campaign_id, recipients, subject=f"Campaign {campaign_id} Report")
+                            logger.info(f"Report sent successfully for campaign {campaign_id} to {recipients}")
                         else:
                             logger.warning(f"No recipient email configured for campaign {campaign_id} report")
                 except Exception as _e:

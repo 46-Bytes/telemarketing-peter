@@ -66,14 +66,14 @@ async def send_ebook(request: Request):
                 logger.info(f"Using converted URL: {ebook_url}")
             
             # Send the email with the ebook in background so the caller gets an instant response
-            threading.Thread(target=send_ebook_email, args=(email, ebook_url), daemon=True).start()
+            threading.Thread(target=send_ebook_email, args=(email, ebook_url), daemon=False).start()
             logger.info(f"[EBOOK] Response returned immediately — email sending in background to {email}")
             return {"message": "Email sent successfully", "ebook_path": ebook_path}
         else:
             # Fallback to default PDF if user or ebook path not found
             logger.warning(f"Ebook path not found for user. Using default PDF.")
             default_pdf = os.getenv("DEFAULT_PDF_URL")
-            threading.Thread(target=send_ebook_email, args=(email, default_pdf), daemon=True).start()
+            threading.Thread(target=send_ebook_email, args=(email, default_pdf), daemon=False).start()
             logger.info(f"[EBOOK] Response returned immediately — default PDF email sending in background to {email}")
             return {"message": "Email sent with default PDF", "ebook_path": default_pdf}
             

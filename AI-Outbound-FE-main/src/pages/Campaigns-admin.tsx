@@ -234,6 +234,12 @@ const CampaignsAdmin: React.FC = () => {
     }
   }
 
+  const archiveCampaign = async (campaignId: string) => {
+    await campaignApi.deleteCampaign(campaignId);
+    // Remove from local state immediately for instant UI feedback
+    setCampaigns(prev => prev.filter(c => c.id !== campaignId));
+  }
+
   // Fetch campaigns with proper ref tracking
   const fetchCampaigns = async () => {
     try {
@@ -313,7 +319,7 @@ const CampaignsAdmin: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {campaigns.map((campaign) => (
-            <EnhancedCampaignCard key={campaign.id} campaign={campaign} />
+            <EnhancedCampaignCard key={campaign.id} campaign={campaign} onArchive={archiveCampaign} />
           ))}
         </div>
       )}

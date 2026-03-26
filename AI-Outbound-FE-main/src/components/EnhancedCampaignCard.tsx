@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 
 interface EnhancedCampaignCardProps {
   campaign: Campaign;
+  onArchive?: (campaignId: string) => Promise<void>;
 }
 
 interface CsvData {
@@ -16,7 +17,7 @@ interface CsvData {
   businessName: string;
 }
 
-const EnhancedCampaignCard: React.FC<EnhancedCampaignCardProps> = ({ campaign }) => {
+const EnhancedCampaignCard: React.FC<EnhancedCampaignCardProps> = ({ campaign, onArchive }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
@@ -27,6 +28,8 @@ const EnhancedCampaignCard: React.FC<EnhancedCampaignCardProps> = ({ campaign })
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
 
   // Format date with fallback
   const formatDate = (dateString?: string) => {
@@ -133,6 +136,27 @@ const EnhancedCampaignCard: React.FC<EnhancedCampaignCardProps> = ({ campaign })
     }
   };
 
+  const handleArchive = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onArchive || !campaign.id) return;
+
+    if (!showArchiveConfirm) {
+      setShowArchiveConfirm(true);
+      // Auto-dismiss confirmation after 3 seconds
+      setTimeout(() => setShowArchiveConfirm(false), 3000);
+      return;
+    }
+
+    setIsArchiving(true);
+    try {
+      await onArchive(campaign.id);
+    } catch (error) {
+      console.error('Failed to archive campaign:', error);
+      setIsArchiving(false);
+      setShowArchiveConfirm(false);
+    }
+  };
+
   const handleCardClick = () => {
     // Check if we're in an admin route
     const isAdminRoute = window.location.pathname.includes('/admin/');
@@ -154,9 +178,37 @@ const EnhancedCampaignCard: React.FC<EnhancedCampaignCardProps> = ({ campaign })
         onClick={handleCardClick}
       >
         {/* Sticky Card Header */}
-        <div className="sticky top-0 z-10 bg-gradient-to-r from-blue-50 to-white px-4 py-3 border-b border-gray-100 flex items-center justify-between rounded-t-xl">
+        <div className="sticky top-0 z-10 bg-gradient-to-r from-blue-50 to-white px-4 py-3 border-b border-gray-100 flex items-center justify-between rounded-t-xl group">
           <h3 className="text-lg font-bold text-blue-700 truncate">{campaign.campaignName}</h3>
+          {onArchive && (
+            <button
+              onClick={handleArchive}
+              disabled={isArchiving}
+              className={`flex-shrink-0 ml-2 p-1.5 rounded-lg transition-all duration-200 ${
+                showArchiveConfirm
+                  ? 'bg-red-100 text-red-600 hover:bg-red-200 opacity-100'
+                  : 'text-gray-400 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100'
+              } ${isArchiving ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title={showArchiveConfirm ? 'Click again to confirm' : 'Archive campaign'}
+            >
+              {isArchiving ? (
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                </svg>
+              )}
+            </button>
+          )}
         </div>
+        {showArchiveConfirm && (
+          <div className="bg-red-50 px-4 py-1.5 text-xs text-red-600 font-medium border-b border-red-100">
+            Click archive again to confirm
+          </div>
+        )}
         
         <div className="flex-1 flex flex-col justify-between p-4">
           <div className="space-y-2">

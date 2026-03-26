@@ -248,7 +248,7 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
     user_id = None
 
      # Determine appointment type from meeting_type parameter
-    appointment_type = None
+    appointment_type = "selling"
     if meeting_type == "bookSellingAppointment":
         appointment_type = "selling"
     elif meeting_type == "bookSaleAdvisoryAppointment":
@@ -401,6 +401,7 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
             response["event"] = result["event"]
 
     # Fire off emails + DB update in a background thread so the caller gets an instant response
+    # daemon=False ensures the thread completes even if the main request finishes
     threading.Thread(
         target=_send_appointment_emails_and_update,
         args=(
@@ -409,7 +410,7 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
             prospect_campaign_name, prospect_email, userEmail,
             latest_summary, latest_transcript, phone_number, campaign_id,
         ),
-        daemon=True,
+        daemon=False,
     ).start()
     logger.info("[APPOINTMENT] Response returned immediately — emails + DB update running in background")
 

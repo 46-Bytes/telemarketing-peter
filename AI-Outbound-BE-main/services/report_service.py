@@ -176,6 +176,39 @@ def update_outcome_fields(
         _write_rows(path, rows)
 
 
+def _fetch_call_logs(campaign_id: str) -> List[Dict[str, str]]:
+    """Fetch call transcript and summary from MongoDB for every prospect in a campaign."""
+    try:
+        from config.database import get_prospects_collection
+        collection = get_prospects_collection()
+        prospects = collection.find({"campaignId": campaign_id})
+        logs = []
+        for prospect in prospects:
+            name = prospect.get("name", "")
+            phone = prospect.get("phoneNumber", "")
+            business = prospect.get("businessName", "")
+            calls = prospect.get("calls", [])
+            if not calls:
+                continue
+            # Use the latest call that has a transcript or summary
+            for call in reversed(calls):
+                transcript = call.get("transcript")
+                summary = call.get("callSummary")
+                if transcript or summary:
+                    logs.append({
+                        "name": name,
+                        "phoneNumber": phone,
+                        "businessName": business,
+                        "callSummary": summary or "",
+                        "transcript": transcript or "",
+                    })
+                    break
+        return logs
+    except Exception as e:
+        logger.warning(f"Could not fetch call logs for campaign {campaign_id}: {e}")
+        return []
+
+
 def convert_csv_to_xlsx(campaign_id: str) -> Optional[str]:
     csv_path = _csv_path(campaign_id)
     xlsx_out = _xlsx_path(campaign_id)
@@ -186,12 +219,30 @@ def convert_csv_to_xlsx(campaign_id: str) -> Optional[str]:
         return None
     rows = _read_rows(csv_path)
     workbook = xlsxwriter.Workbook(xlsx_out)
+
+    # --- Sheet 1: Report (existing) ---
     worksheet = workbook.add_worksheet("Report")
     for col, header in enumerate(REPORT_HEADERS):
         worksheet.write(0, col, header)
     for r, row in enumerate(rows, start=1):
         for c, header in enumerate(REPORT_HEADERS):
             worksheet.write(r, c, row.get(header, ""))
+
+    # --- Sheet 2: Call Logs (transcripts & summaries from DB) ---
+    call_log_headers = ["name", "phoneNumber", "businessName", "callSummary", "transcript"]
+    call_logs = _fetch_call_logs(campaign_id)
+    if call_logs:
+        log_sheet = workbook.add_worksheet("Call Logs")
+        wrap_format = workbook.add_format({"text_wrap": True, "valign": "top"})
+        for col, header in enumerate(call_log_headers):
+            log_sheet.write(0, col, header)
+        # Set wider columns for summary and transcript
+        log_sheet.set_column(3, 3, 50)  # callSummary
+        log_sheet.set_column(4, 4, 80)  # transcript
+        for r, log in enumerate(call_logs, start=1):
+            for c, header in enumerate(call_log_headers):
+                log_sheet.write(r, c, log.get(header, ""), wrap_format)
+
     workbook.close()
     return xlsx_out
 
@@ -216,7 +267,8 @@ def save_report_locally(campaign_id: str) -> Optional[str]:
     return dest_path
 
 
-def email_report(campaign_id: str, recipient_email: str, subject: Optional[str] = None):
+def email_report(campaign_id: str, recipient_emails: List[str], subject: Optional[str] = None):
+    """Send the campaign report to one or more recipients."""
     smtp_user = os.getenv("SMTP_USER_EMAIL")
     smtp_password = os.getenv("SMTP_PASSWORD")
     if not smtp_user or not smtp_password:
@@ -227,22 +279,31 @@ def email_report(campaign_id: str, recipient_email: str, subject: Optional[str] 
     if not os.path.exists(attachment_path):
         logger.error("No report file found to send")
         return
-    msg = MIMEMultipart()
-    msg['From'] = smtp_user
-    msg['To'] = recipient_email
-    msg['Subject'] = subject or f"Campaign Report {campaign_id}"
-    body = f"Report generated on {datetime.utcnow().isoformat()}Z"
-    msg.attach(MIMEText(body, 'plain'))
+
+    # Read attachment once
     with open(attachment_path, 'rb') as f:
-        part = MIMEApplication(f.read())
-        filename = os.path.basename(attachment_path)
-        part.add_header('Content-Disposition', 'attachment', filename=filename)
-        msg.attach(part)
-    server = smtplib.SMTP("smtp.gmail.com", 587)
-    server.starttls()
-    server.login(smtp_user, smtp_password)
-    server.sendmail(smtp_user, recipient_email, msg.as_string())
-    server.quit()
+        attachment_data = f.read()
+    filename = os.path.basename(attachment_path)
+
+    for recipient in recipient_emails:
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = smtp_user
+            msg['To'] = recipient
+            msg['Subject'] = subject or f"Campaign Report {campaign_id}"
+            body = f"Report generated on {datetime.utcnow().isoformat()}Z"
+            msg.attach(MIMEText(body, 'plain'))
+            part = MIMEApplication(attachment_data)
+            part.add_header('Content-Disposition', 'attachment', filename=filename)
+            msg.attach(part)
+            server = smtplib.SMTP("smtp.gmail.com", 587)
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_user, recipient, msg.as_string())
+            server.quit()
+            logger.info(f"Report emailed to {recipient} for campaign {campaign_id}")
+        except Exception as e:
+            logger.error(f"Failed to email report to {recipient} for campaign {campaign_id}: {e}")
 
 
 def cleanup_report(campaign_id: str):
@@ -257,9 +318,9 @@ def cleanup_report(campaign_id: str):
         logger.warning(f"Cleanup failed for campaign {campaign_id}: {str(e)}")
 
 
-def finalize_and_send(campaign_id: str, recipient_email: str, subject: Optional[str] = None):
+def finalize_and_send(campaign_id: str, recipient_emails: List[str], subject: Optional[str] = None):
     """
-    Convert the CSV to XLSX, save a local copy, email it, then clean up temp files.
+    Convert the CSV to XLSX, save a local copy, email it to all recipients, then clean up temp files.
     """
     # Ensure XLSX exists and capture its path
     xlsx_path = convert_csv_to_xlsx(campaign_id)
@@ -278,8 +339,8 @@ def finalize_and_send(campaign_id: str, recipient_email: str, subject: Optional[
     except Exception as e:
         logger.warning(f"Failed to save local XLSX copy for campaign {campaign_id}: {str(e)}")
 
-    # Email the report as before
-    email_report(campaign_id, recipient_email, subject)
+    # Email the report to all recipients
+    email_report(campaign_id, recipient_emails, subject)
     # Remove temp files from the OS temp directory
     cleanup_report(campaign_id)
 
@@ -290,9 +351,13 @@ def are_all_outcomes_complete(campaign_id: str) -> bool:
     if not rows:
         return False
     for r in rows:
-        if not (r.get("callConnection") or "").strip():
+        # Every row must have a callConnection value (voicemail, successful, etc.)
+        # callOutcomes is only populated for successful connections, so we don't
+        # require it for non-successful calls.
+        connection = (r.get("callConnection") or "").strip()
+        if not connection:
             return False
-        if not (r.get("callOutcomes") or "").strip():
+        if connection == "successful" and not (r.get("callOutcomes") or "").strip():
             return False
     return True
 
