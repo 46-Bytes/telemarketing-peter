@@ -14,6 +14,26 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+def normalize_phone_number(phone_number: str) -> str:
+    """
+    Normalize phone number to include + prefix for known country codes.
+
+    Handles:
+    - 61XXXXXXXXX -> +61XXXXXXXXX (Australian)
+    - 92XXXXXXXXXX -> +92XXXXXXXXXX (Pakistani)
+    - Already prefixed with + -> unchanged
+    """
+    if not phone_number:
+        return phone_number
+    cleaned = re.sub(r'[^\d+]', '', phone_number.strip())
+    if cleaned.startswith('+'):
+        return cleaned
+    if re.match(r'^61[2-9]\d{8}$', cleaned):
+        return '+' + cleaned
+    if re.match(r'^92[3-9]\d{9}$', cleaned):
+        return '+' + cleaned
+    return cleaned
+
 def is_valid_number(phone_number: str) -> bool:
     """
     Validate Australian and Pakistani phone number format using regex.
@@ -123,9 +143,12 @@ async def create_phone_call(prospects, source="unknown"):
             
             for prospect in batch_prospects:
                 prospect_name = prospect.name or "Unknown"
-                
+
+                # Normalize phone number (e.g. 61... -> +61...)
+                normalized_phone = normalize_phone_number(prospect.phoneNumber)
+
                 # Validate phone number before adding to batch
-                if not is_valid_number(prospect.phoneNumber):
+                if not is_valid_number(normalized_phone):
                     logger.warning("Invalid phone number for %s: %s - skipping", prospect_name, prospect.phoneNumber)
                     continue
 
@@ -174,13 +197,13 @@ async def create_phone_call(prospects, source="unknown"):
                 previous_summary_str = previous_summary if previous_summary is not None else ""
 
                 task = {
-                    "to_number": prospect.phoneNumber,
+                    "to_number": normalized_phone,
                     "override_agent_id": current_agent_id,
                     "retell_llm_dynamic_variables": {
                         "user_name": prospect.name or "There",
                         "business_name": prospect.businessName,
                         "owner_name": prospect.ownerName,
-                        "phoneNumber": prospect.phoneNumber,
+                        "phoneNumber": normalized_phone,
                         "campaign_id": prospect.campaignId,
                         "is_callback": is_callback_str,
                         "previous_transcript": previous_transcript_str,
@@ -267,6 +290,13 @@ def update_batch_call_status(batch_id: str, call_results: List[Dict[str, Any]]):
             if not phone_number or not call_id:
                 logger.warning(f"Invalid call result: {call_result}")
                 continue
+
+            # Build list of phone variants to try (with and without +)
+            phone_variants = [phone_number]
+            if phone_number.startswith('+'):
+                phone_variants.append(phone_number[1:])  # without +
+            else:
+                phone_variants.append('+' + phone_number)  # with +
             
             # Extract all call details from webhook
             duration_ms = call_result.get('duration_ms', 0)
@@ -314,10 +344,10 @@ def update_batch_call_status(batch_id: str, call_results: List[Dict[str, Any]]):
                 }
             }
             
-            # Update prospect in database - replace the existing call entry with batchId
+            # Update prospect in database - try both phone variants (with/without +)
             update_result = collection.update_one(
                 {
-                    "phoneNumber": phone_number,
+                    "phoneNumber": {"$in": phone_variants},
                     "calls.batchId": batch_id
                 },
                 {
@@ -331,18 +361,18 @@ def update_batch_call_status(batch_id: str, call_results: List[Dict[str, Any]]):
                     }
                 }
             )
-            
+
             if update_result.modified_count > 0:
                 logger.info(f"Updated prospect {phone_number} with status {prospect_status}, call_id: {call_id}")
             else:
                 # If no prospect found with batchId, try to find by phone number and add call
                 logger.warning(f"No prospect found with batch ID {batch_id} for phone {phone_number}, trying to add call directly")
-                
+
                 # Find prospect by phone number and add call
-                prospect = collection.find_one({"phoneNumber": phone_number})
+                prospect = collection.find_one({"phoneNumber": {"$in": phone_variants}})
                 if prospect:
                     collection.update_one(
-                        {"phoneNumber": phone_number},
+                        {"phoneNumber": prospect["phoneNumber"]},
                         {
                             "$set": {"status": prospect_status},
                             "$push": {

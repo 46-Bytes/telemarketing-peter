@@ -8,6 +8,7 @@ import random
 from models.token_model import TokenStore
 from bson import ObjectId
 from utils.timezone import get_brisbane_now
+from services.call_initiation_service import normalize_phone_number
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +29,9 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
     logger.info(f"Uploading {len(prospects)} prospects to campaign '{campaign_name}' (ID: {campaign_id})")
     
     for prospect in prospects:
+        # Normalize phone number (e.g. 61... -> +61...)
+        prospect.phoneNumber = normalize_phone_number(prospect.phoneNumber)
+
         # Debug logging for each prospect
         prospect_name = prospect.name or "Unknown"
         logger.info(f"Processing prospect: {prospect_name}, phone: {prospect.phoneNumber}, " +
