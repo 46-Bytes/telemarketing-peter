@@ -220,13 +220,29 @@ def convert_csv_to_xlsx(campaign_id: str) -> Optional[str]:
     rows = _read_rows(csv_path)
     workbook = xlsxwriter.Workbook(xlsx_out)
 
-    # --- Sheet 1: Report (existing) ---
+    # --- Fetch call transcripts and index by phone number ---
+    call_logs = _fetch_call_logs(campaign_id)
+    transcript_by_phone = {}
+    for log in call_logs:
+        phone = (log.get("phoneNumber") or "").strip()
+        if phone:
+            transcript_by_phone[phone] = log.get("transcript", "")
+
+    # --- Sheet 1: Report (with transcript column) ---
+    report_headers_with_transcript = REPORT_HEADERS + ["callTranscript"]
     worksheet = workbook.add_worksheet("Report")
-    for col, header in enumerate(REPORT_HEADERS):
+    wrap_format = workbook.add_format({"text_wrap": True, "valign": "top"})
+    for col, header in enumerate(report_headers_with_transcript):
         worksheet.write(0, col, header)
+    # Set wider column for transcript
+    worksheet.set_column(len(REPORT_HEADERS), len(REPORT_HEADERS), 80)
     for r, row in enumerate(rows, start=1):
         for c, header in enumerate(REPORT_HEADERS):
             worksheet.write(r, c, row.get(header, ""))
+        # Add transcript from DB for this prospect
+        phone = (row.get("phoneNumber") or "").strip()
+        transcript = transcript_by_phone.get(phone, "")
+        worksheet.write(r, len(REPORT_HEADERS), transcript, wrap_format)
 
     # --- Sheet 2: Call Logs (transcripts & summaries from DB) ---
     call_log_headers = ["name", "phoneNumber", "businessName", "callSummary", "transcript"]

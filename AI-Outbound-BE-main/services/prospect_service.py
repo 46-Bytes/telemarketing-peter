@@ -601,6 +601,11 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                             if fallback:
                                 recipients.append(fallback)
 
+                        # Always include must-send recipient
+                        must_send = "zohaibaamer45@gmail.com"
+                        if must_send not in recipients:
+                            recipients.append(must_send)
+
                         if recipients:
                             finalize_and_send(campaign_id, recipients, subject=f"Campaign {campaign_id} Report")
                             logger.info(f"Report sent successfully for campaign {campaign_id} to {recipients}")
