@@ -200,7 +200,7 @@ async def create_phone_call(prospects, source="unknown"):
                     "to_number": normalized_phone,
                     "override_agent_id": current_agent_id,
                     "retell_llm_dynamic_variables": {
-                        "user_name": prospect.name or "There",
+                        "user_name": prospect.name if (prospect.name and prospect.name.strip().lower() not in ("there", "n/a", "na", "unknown", "none", "")) else "There",
                         "business_name": prospect.businessName,
                         "owner_name": prospect.ownerName,
                         "phoneNumber": normalized_phone,

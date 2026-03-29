@@ -153,6 +153,23 @@ def update_dynamic_fields(
         _write_rows(path, rows)
 
 
+def update_prospect_name(campaign_id: str, phone_number: str, name: str):
+    """Update the prospect name in the report CSV (used when name was missing at upload)."""
+    path = _csv_path(campaign_id)
+    rows = _read_rows(path)
+    if not rows:
+        return
+    updated = False
+    for row in rows:
+        if (row.get("phoneNumber") or "").strip() == (phone_number or "").strip():
+            if not (row.get("name") or "").strip() or (row.get("name") or "").strip().lower() in ("there", "n/a", "na", "unknown", "none", ""):
+                row["name"] = name
+                updated = True
+            break
+    if updated:
+        _write_rows(path, rows)
+
+
 def update_outcome_fields(
     campaign_id: str,
     phone_number: str,

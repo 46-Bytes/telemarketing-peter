@@ -4,6 +4,7 @@ from models.prospect import ProspectIn
 from typing import List, Dict, Any
 from datetime import datetime, timedelta, timezone
 import logging
+import re
 import random
 from models.token_model import TokenStore
 from bson import ObjectId
@@ -13,6 +14,96 @@ from services.call_initiation_service import normalize_phone_number
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Names that indicate the prospect was uploaded without a real name
+_MISSING_NAME_VALUES = {"", "there", "n/a", "na", "unknown", "none"}
+
+
+def _is_name_missing(name: str) -> bool:
+    """Return True if the prospect name is absent or a placeholder."""
+    return not name or name.strip().lower() in _MISSING_NAME_VALUES
+
+
+def _extract_name_from_transcript(transcript: str) -> str | None:
+    """
+    Try to extract the prospect's name from the call transcript.
+
+    Strategy:
+    1. Look for the agent confirming the name back (e.g. "Hi Steve," or
+       "Thanks Steve") — this is the most reliable signal because the agent
+       only uses the name after the prospect provides it.
+    2. Look for explicit self-introductions by the prospect:
+       "my name is ...", "this is ...", "I'm ...", "it's ..."
+       immediately after the agent asks "who am I speaking with".
+    """
+    if not transcript:
+        return None
+
+    # ── Strategy 1: Agent confirms name back after asking ──
+    # Retell transcripts use "Agent:" and "User:" prefixes.
+    # After the greeting the agent will say something like "Hi Steve, ..."
+    # Find lines where the agent says "Hi <Name>" AFTER the first agent line.
+    agent_greet_pattern = re.compile(
+        r'Agent:\s*(?:Hi|Hello|Hey|Thanks|Thank you)\s+([A-Z][a-z]+)',
+        re.IGNORECASE,
+    )
+    # Skip the very first agent greeting (that's the opening line before
+    # the user has given their name).  We want the SECOND occurrence onward.
+    matches = list(agent_greet_pattern.finditer(transcript))
+    if len(matches) >= 2:
+        name = matches[1].group(1).strip().rstrip('.,!?')
+        if name.lower() not in _MISSING_NAME_VALUES and name.lower() not in {
+            "what", "who", "why", "how", "when", "where", "which",
+            "yes", "yeah", "no", "nah", "the", "this", "that", "there",
+            "just", "well", "sorry", "sure", "okay", "hey", "benchmark", "anna",
+        } and len(name) >= 2:
+            return name.title()
+
+    # ── Strategy 2: User self-introduction ──
+    # Common words that look like names (capitalised) but aren't
+    _NOT_NAMES = {
+        "what", "who", "why", "how", "when", "where", "which",
+        "yes", "yeah", "yep", "no", "nah", "nope", "not", "none",
+        "the", "this", "that", "there", "here",
+        "just", "well", "look", "sorry", "sure", "okay", "hey",
+        "can", "could", "would", "should", "will", "may", "might",
+        "hi", "hello", "bye", "thanks", "thank",
+        "benchmark", "anna", "mate",
+    }
+
+    def _valid_name(n: str) -> bool:
+        return (
+            n is not None
+            and len(n) >= 2
+            and n.lower() not in _MISSING_NAME_VALUES
+            and n.lower() not in _NOT_NAMES
+        )
+
+    user_name_patterns = [
+        # "my name is Steve"
+        r"User:\s*.*?\bmy name is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+        # "this is Steve"
+        r"User:\s*.*?\bthis is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+        # "I'm Steve" / "I am Steve"
+        r"User:\s*.*?\bI'?m\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+        r"User:\s*.*?\bI am\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+        # "it's Steve" / "its Steve"
+        r"User:\s*.*?\bit'?s\s+([A-Z][a-z]+)",
+        # "name's Steve"
+        r"User:\s*.*?\bname'?s\s+([A-Z][a-z]+)",
+        # Just a single capitalised word on the user line right after the
+        # agent asks for the name (e.g.  User: "Steve.")
+        r"(?:who am I speaking with|who is this|may I ask your name).*?User:\s*([A-Z][a-z]+)",
+    ]
+    for pattern in user_name_patterns:
+        m = re.search(pattern, transcript, re.IGNORECASE | re.DOTALL)
+        if m:
+            name = m.group(1).strip().rstrip('.,!?')
+            if _valid_name(name):
+                return name.title()
+
+    return None
+
 
 def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: str, campaign_name: str, campaign_id: str = None,scheduled_call_time: str = None):
     prospects_collection = get_prospects_collection()
@@ -161,7 +252,7 @@ def upload_prospects_service(prospects: List[ProspectIn], scheduled_call_date: s
         "message": "Prospects Added successfully",
     }
 
-from services.report_service import update_outcome_fields, update_dynamic_fields, are_all_outcomes_complete, finalize_and_send, save_report_locally
+from services.report_service import update_outcome_fields, update_dynamic_fields, update_prospect_name, are_all_outcomes_complete, finalize_and_send, save_report_locally
 from services.auto_retry_service import schedule_auto_retry, reset_auto_retry_fields_on_success
 
 
@@ -404,7 +495,27 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         else:
             prospect_status = "error"
         logger.info("[WEBHOOK] Prospect status resolved | phone=%s | prospect_status=%s", to_number, prospect_status)
-            
+
+        # ── Extract prospect name if it was missing at upload time ──
+        extracted_name = None
+        existing_name = (existing_prospect.get("name") or "").strip()
+        if _is_name_missing(existing_name):
+            # 1. Try the Retell dynamic variable (agent may have updated it during the call)
+            dyn_user_name = (
+                call_data.get("retell_llm_dynamic_variables", {}).get("user_name", "") or ""
+            ).strip()
+            if not _is_name_missing(dyn_user_name):
+                extracted_name = dyn_user_name.title()
+                logger.info("[WEBHOOK] Name extracted from dynamic variables | phone=%s | name=%s", to_number, extracted_name)
+            else:
+                # 2. Fall back to parsing the transcript
+                transcript_text = call_data.get("transcript", "")
+                extracted_name = _extract_name_from_transcript(transcript_text)
+                if extracted_name:
+                    logger.info("[WEBHOOK] Name extracted from transcript | phone=%s | name=%s", to_number, extracted_name)
+                else:
+                    logger.info("[WEBHOOK] Could not extract name from transcript | phone=%s", to_number)
+
         # Create update dictionary for prospect-level fields
         prospect_update_dict = {
             # "scheduledCallDate": new_call_back_date,
@@ -418,6 +529,10 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             "isEbook": is_ebook,
             "isNewsletterSent": is_newsletter_sent
         }
+
+        # Add extracted name to update if we found one
+        if extracted_name:
+            prospect_update_dict["name"] = extracted_name
 
         # # Only add retryCount reset and increment callBackCount if call_back_date is in YYYY-MM-DD format
         # if analysis_callback_date and isinstance(analysis_callback_date, str) and len(analysis_callback_date) == 10:
@@ -520,6 +635,14 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                     )
                 except ValueError:
                     pass
+
+        # Update report CSV name if we extracted one
+        if extracted_name and campaign_id:
+            try:
+                update_prospect_name(campaign_id, to_number, extracted_name)
+                logger.info(f"Updated report name for {to_number} in campaign {campaign_id} to '{extracted_name}'")
+            except Exception as _name_e:
+                logger.warning(f"Failed to update report name for {to_number}: {_name_e}")
 
         # Update report CSV with connection and outcome
         try:

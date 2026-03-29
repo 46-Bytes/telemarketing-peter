@@ -231,6 +231,147 @@ def test_finalize_called_with_must_send():
     )
 
 
+# ─── Test 4: Name extraction from transcript ───────────────────────────
+
+def test_name_extraction_from_transcript():
+    """
+    Tests _extract_name_from_transcript with various realistic transcript formats.
+    """
+    print("\n[Test 4] Extract prospect name from call transcript")
+
+    # Import helpers without triggering the full prospect_service import chain
+    # (which requires pymongo). We load the module source directly.
+    import importlib, types
+    spec = importlib.util.spec_from_file_location(
+        "_ps_helpers",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "services", "prospect_service.py"),
+        submodule_search_locations=[],
+    )
+    # Provide stub modules so the import doesn't fail
+    for mod_name in [
+        "config", "config.database", "models", "models.prospect", "models.token_model",
+        "bson", "utils", "utils.timezone", "services.call_initiation_service",
+        "services.report_service", "services.auto_retry_service",
+    ]:
+        if mod_name not in sys.modules:
+            sys.modules[mod_name] = types.ModuleType(mod_name)
+    # Provide the specific names the module expects from stubs
+    sys.modules["config.database"].get_prospects_collection = lambda: None
+    sys.modules["models.prospect"].ProspectIn = type("ProspectIn", (), {})
+    sys.modules["models.token_model"].TokenStore = type("TokenStore", (), {})
+    sys.modules["bson"].ObjectId = str
+    sys.modules["utils.timezone"].get_brisbane_now = lambda: __import__("datetime").datetime.now()
+    sys.modules["services.call_initiation_service"].normalize_phone_number = lambda x: x
+    for attr in ["update_outcome_fields", "update_dynamic_fields", "update_prospect_name",
+                 "are_all_outcomes_complete", "finalize_and_send", "save_report_locally"]:
+        setattr(sys.modules["services.report_service"], attr, lambda *a, **kw: None)
+    for attr in ["schedule_auto_retry", "reset_auto_retry_fields_on_success"]:
+        setattr(sys.modules["services.auto_retry_service"], attr, lambda *a, **kw: None)
+
+    loader = importlib.util.LazyLoader(spec.loader)
+    spec.loader = loader
+    _ps = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_ps)
+    _extract_name_from_transcript = _ps._extract_name_from_transcript
+    _is_name_missing = _ps._is_name_missing
+
+    # 4a: Agent confirms name back (second greeting = after user gave name)
+    transcript_a = (
+        'Agent: Hi, Anna from Benchmark Business Sales. Who am I speaking with?\n'
+        'User: Yeah, this is Steve.\n'
+        'Agent: Hi Steve, thanks for taking my call.\n'
+    )
+    check("4a: Extracts 'Steve' from agent confirmation", _extract_name_from_transcript(transcript_a) == "Steve")
+
+    # 4b: "my name is Tony"
+    transcript_b = (
+        'Agent: Hi, Anna from Benchmark Business Sales. Who am I speaking with?\n'
+        'User: My name is Tony.\n'
+        'Agent: Hi Tony, great to speak with you.\n'
+    )
+    check("4b: Extracts 'Tony' from 'my name is'", _extract_name_from_transcript(transcript_b) == "Tony")
+
+    # 4c: "I'm Sarah"
+    transcript_c = (
+        'Agent: Hi, Anna from Benchmark Business Sales. Who am I speaking with?\n'
+        "User: I'm Sarah.\n"
+        'Agent: Hi Sarah, nice to meet you.\n'
+    )
+    check("4c: Extracts 'Sarah' from \"I'm\"", _extract_name_from_transcript(transcript_c) == "Sarah")
+
+    # 4d: "it's David"
+    transcript_d = (
+        'Agent: Hi, Anna from Benchmark Business Sales. Who am I speaking with?\n'
+        "User: It's David.\n"
+        'Agent: Hi David, thanks for your time.\n'
+    )
+    check("4d: Extracts 'David' from \"it's\"", _extract_name_from_transcript(transcript_d) == "David")
+
+    # 4e: No name given at all — should return None
+    transcript_e = (
+        'Agent: Hi, Anna from Benchmark Business Sales. Who am I speaking with?\n'
+        'User: What is this about?\n'
+        'Agent: We are calling from Benchmark Business Sales.\n'
+    )
+    check("4e: Returns None when no name given", _extract_name_from_transcript(transcript_e) is None)
+
+    # 4f: Empty transcript
+    check("4f: Returns None for empty transcript", _extract_name_from_transcript("") is None)
+    check("4g: Returns None for None transcript", _extract_name_from_transcript(None) is None)
+
+    # 4h: _is_name_missing helper
+    check("4h: 'There' is a missing name", _is_name_missing("There") is True)
+    check("4i: 'N/A' is a missing name", _is_name_missing("N/A") is True)
+    check("4j: '' is a missing name", _is_name_missing("") is True)
+    check("4k: 'Steve' is NOT a missing name", _is_name_missing("Steve") is False)
+
+
+# ─── Test 5: Report CSV name update ────────────────────────────────────
+
+def test_report_name_update():
+    """
+    Tests that update_prospect_name updates the name in the report CSV
+    only when the existing name is missing/placeholder.
+    """
+    print("\n[Test 5] Report CSV name update for missing names")
+
+    from services.report_service import (
+        init_campaign_report,
+        update_prospect_name,
+        _read_rows,
+        _csv_path,
+        cleanup_report,
+    )
+
+    campaign_id = "test_name_update"
+    prospects = [
+        {"name": "", "phoneNumber": "+61400000001", "businessName": "Biz A"},
+        {"name": "Existing Name", "phoneNumber": "+61400000002", "businessName": "Biz B"},
+        {"name": "N/A", "phoneNumber": "+61400000003", "businessName": "Biz C"},
+    ]
+    init_campaign_report(campaign_id, prospects)
+
+    # Update name for prospect with empty name
+    update_prospect_name(campaign_id, "+61400000001", "Steve")
+    rows = _read_rows(_csv_path(campaign_id))
+    row_1 = next(r for r in rows if r["phoneNumber"] == "+61400000001")
+    check("5a: Empty name updated to 'Steve'", row_1["name"] == "Steve")
+
+    # Prospect with existing name should NOT be overwritten
+    update_prospect_name(campaign_id, "+61400000002", "Overwrite Attempt")
+    rows = _read_rows(_csv_path(campaign_id))
+    row_2 = next(r for r in rows if r["phoneNumber"] == "+61400000002")
+    check("5b: Existing name NOT overwritten", row_2["name"] == "Existing Name")
+
+    # N/A name should be updated
+    update_prospect_name(campaign_id, "+61400000003", "Tony")
+    rows = _read_rows(_csv_path(campaign_id))
+    row_3 = next(r for r in rows if r["phoneNumber"] == "+61400000003")
+    check("5c: 'N/A' name updated to 'Tony'", row_3["name"] == "Tony")
+
+    cleanup_report(campaign_id)
+
+
 def main():
     global passed, failed
     print("\n=== Tests for Latest Changes ===")
@@ -238,6 +379,9 @@ def main():
     test_xlsx_has_transcript_column()
     test_must_send_recipient_always_included()
     test_finalize_called_with_must_send()
+    # Run test 5 before test 4 because test 4 stubs sys.modules
+    test_report_name_update()
+    test_name_extraction_from_transcript()
 
     total = passed + failed
     print(f"\n{'='*50}")
