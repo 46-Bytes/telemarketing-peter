@@ -564,5 +564,14 @@ def _send_appointment_emails_and_update(
             )
             logger.info(f"[BG-EMAIL] Prospect appointment updated — phone={phone_number}, campaign={campaign_id}")
 
+            # Update the report CSV to reflect the confirmed booking
+            if campaign_id:
+                try:
+                    from services.report_service import update_outcome_fields
+                    update_outcome_fields(campaign_id, phone_number, "successful", "meeting booked")
+                    logger.info(f"[BG-EMAIL] Report outcome set to 'meeting booked' — phone={phone_number}, campaign={campaign_id}")
+                except Exception as report_e:
+                    logger.warning(f"[BG-EMAIL] Failed to update report outcome: {report_e}")
+
     except Exception as e:
         logger.error(f"[BG-EMAIL] Background email/update failed: {e}", exc_info=True)

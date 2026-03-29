@@ -663,20 +663,23 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                 call_connection = mapped_status
             
             # Determine call outcome (only for successful connections)
+            # NOTE: "meeting booked" is set by the booking endpoint itself
+            # (benchmark_appointment_service) once the appointment is confirmed,
+            # NOT here — appointment_interest only means the prospect showed
+            # interest, not that the booking API actually succeeded.
             call_outcome = ""
             if call_connection == "successful":
                 # Use the explicit call_outcome from the AI analysis if available
                 explicit_outcome = analysis.get('call_outcome')
 
-                if explicit_outcome:
+                if explicit_outcome and explicit_outcome != 'meeting booked':
                     call_outcome = explicit_outcome
-                # Use structured boolean fields from the webhook — no keyword guessing
-                elif analysis.get('appointment_interest') is True:
-                    call_outcome = 'meeting booked'
                 elif analysis.get('ebook') is True:
                     call_outcome = 'interested in ebook'
                 elif analysis.get('call_back_request') is True:
                     call_outcome = 'callback requested'
+                elif analysis.get('appointment_interest') is True:
+                    call_outcome = 'appointment interest'
                 else:
                     call_outcome = 'successful'
 
