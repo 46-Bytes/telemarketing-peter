@@ -1,7 +1,8 @@
 from config.database import get_prospects_collection
 import os
+import threading
 from models.prospect import ProspectIn
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
 from datetime import datetime, timedelta, timezone
 import logging
 import re
@@ -14,6 +15,27 @@ from services.call_initiation_service import normalize_phone_number
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ── Webhook deduplication ──
+# Retell often sends the same call_analyzed event multiple times for the same
+# call_id.  Processing duplicates causes CSV race conditions that can prevent
+# the final report email from being sent.  We keep a bounded in-memory set of
+# recently-processed call_ids so duplicates are skipped cheaply.
+_processed_call_ids: Set[str] = set()
+_processed_call_ids_lock = threading.Lock()
+_MAX_PROCESSED_IDS = 5000  # cap to avoid unbounded memory growth
+
+
+def _mark_call_processed(call_id: str) -> bool:
+    """Return True if this call_id was already processed (duplicate). Marks it processed otherwise."""
+    with _processed_call_ids_lock:
+        if call_id in _processed_call_ids:
+            return True  # duplicate
+        # Evict oldest entries when we hit the cap (simple reset)
+        if len(_processed_call_ids) >= _MAX_PROCESSED_IDS:
+            _processed_call_ids.clear()
+        _processed_call_ids.add(call_id)
+        return False
 
 # Names that indicate the prospect was uploaded without a real name
 _MISSING_NAME_VALUES = {"", "there", "n/a", "na", "unknown", "none"}
@@ -278,6 +300,11 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         call_id = call_data.get('call_id')
         campaign_id = call_data.get('retell_llm_dynamic_variables', {}).get('campaign_id')
         duration_s = round(call_data.get('duration_ms', 0) / 1000, 1)
+
+        # ── Deduplication: skip if we already processed this call_id ──
+        if call_id and _mark_call_processed(call_id):
+            logger.info("[WEBHOOK] Duplicate call_analyzed skipped | call_id=%s | phone=%s", call_id, to_number)
+            return {"message": "Duplicate webhook skipped"}
 
         logger.info("[WEBHOOK] Processing | phone=%s | call_id=%s | status=%s | mapped=%s | disconnect=%s | duration=%ss | campaign=%s",
                      to_number, call_id, call_status, mapped_status, disconnection_reason, duration_s, campaign_id)
@@ -684,61 +711,67 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
                     call_outcome = 'successful'
 
             if campaign_id:
-                logger.info(f"Updating report for campaign {campaign_id}: connection={call_connection}, outcome={call_outcome}")
-                update_outcome_fields(campaign_id, to_number, call_connection, call_outcome)
+                from services.report_service import _get_campaign_lock
+                campaign_lock = _get_campaign_lock(campaign_id)
 
-                # Save an incremental local XLSX after every call outcome update
-                try:
-                    save_report_locally(campaign_id)
-                except Exception as _local_e:
-                    logger.warning(f"Failed to save local report copy for campaign {campaign_id}: {_local_e}")
+                # Hold the lock for the entire update → completeness-check → send
+                # sequence so no other webhook can interleave CSV writes.
+                with campaign_lock:
+                    logger.info(f"Updating report for campaign {campaign_id}: connection={call_connection}, outcome={call_outcome}")
+                    update_outcome_fields(campaign_id, to_number, call_connection, call_outcome)
 
-                # Finalize/email if all outcomes complete
-                try:
-                    if are_all_outcomes_complete(campaign_id):
-                        logger.info(f"All calls complete for campaign {campaign_id}. Sending report...")
+                    # Save an incremental local XLSX after every call outcome update
+                    try:
+                        save_report_locally(campaign_id)
+                    except Exception as _local_e:
+                        logger.warning(f"Failed to save local report copy for campaign {campaign_id}: {_local_e}")
 
-                        recipients = []
-                        try:
-                            from config.database import get_campaign_users_collection, get_users_collection
-                            from bson import ObjectId as _ObjId
+                    # Finalize/email if all outcomes complete
+                    try:
+                        if are_all_outcomes_complete(campaign_id):
+                            logger.info(f"All calls complete for campaign {campaign_id}. Sending report...")
 
-                            # 1. Look up the broker (campaign advisor) email
-                            campaign_doc = get_campaign_users_collection().find_one({"_id": _ObjId(campaign_id)})
-                            if campaign_doc and campaign_doc.get("users"):
-                                advisor = get_users_collection().find_one({"_id": _ObjId(campaign_doc["users"])})
-                                if advisor and advisor.get("email"):
-                                    recipients.append(advisor["email"])
-                                    logger.info(f"Report will be sent to broker: {advisor['email']}")
+                            recipients = []
+                            try:
+                                from config.database import get_campaign_users_collection, get_users_collection
+                                from bson import ObjectId as _ObjId
 
-                            # 2. Look up all super_admin emails
-                            super_admins = list(get_users_collection().find({"role": "super_admin"}))
-                            for admin in super_admins:
-                                admin_email = admin.get("email")
-                                if admin_email and admin_email not in recipients:
-                                    recipients.append(admin_email)
-                                    logger.info(f"Report will be sent to admin: {admin_email}")
-                        except Exception as _lookup_e:
-                            logger.warning(f"Could not look up recipient emails: {_lookup_e}")
+                                # 1. Look up the broker (campaign advisor) email
+                                campaign_doc = get_campaign_users_collection().find_one({"_id": _ObjId(campaign_id)})
+                                if campaign_doc and campaign_doc.get("users"):
+                                    advisor = get_users_collection().find_one({"_id": _ObjId(campaign_doc["users"])})
+                                    if advisor and advisor.get("email"):
+                                        recipients.append(advisor["email"])
+                                        logger.info(f"Report will be sent to broker: {advisor['email']}")
 
-                        # Fall back to env var if no recipients found
-                        if not recipients:
-                            fallback = os.getenv('REPORT_RECIPIENT_EMAIL') or os.getenv('SMTP_USER_EMAIL')
-                            if fallback:
-                                recipients.append(fallback)
+                                # 2. Look up all super_admin emails
+                                super_admins = list(get_users_collection().find({"role": "super_admin"}))
+                                for admin in super_admins:
+                                    admin_email = admin.get("email")
+                                    if admin_email and admin_email not in recipients:
+                                        recipients.append(admin_email)
+                                        logger.info(f"Report will be sent to admin: {admin_email}")
+                            except Exception as _lookup_e:
+                                logger.warning(f"Could not look up recipient emails: {_lookup_e}")
 
-                        # Always include must-send recipient
-                        must_send = "zohaibaamer45@gmail.com"
-                        if must_send not in recipients:
-                            recipients.append(must_send)
+                            # Fall back to env var if no recipients found
+                            if not recipients:
+                                fallback = os.getenv('REPORT_RECIPIENT_EMAIL') or os.getenv('SMTP_USER_EMAIL')
+                                if fallback:
+                                    recipients.append(fallback)
 
-                        if recipients:
-                            finalize_and_send(campaign_id, recipients, subject=f"Campaign {campaign_id} Report")
-                            logger.info(f"Report sent successfully for campaign {campaign_id} to {recipients}")
-                        else:
-                            logger.warning(f"No recipient email configured for campaign {campaign_id} report")
-                except Exception as _e:
-                    logger.warning(f"Finalize/email skipped for campaign {campaign_id}: {_e}")
+                            # Always include must-send recipient
+                            must_send = "zohaibaamer45@gmail.com"
+                            if must_send not in recipients:
+                                recipients.append(must_send)
+
+                            if recipients:
+                                finalize_and_send(campaign_id, recipients, subject=f"Campaign {campaign_id} Report")
+                                logger.info(f"Report sent successfully for campaign {campaign_id} to {recipients}")
+                            else:
+                                logger.warning(f"No recipient email configured for campaign {campaign_id} report")
+                    except Exception as _e:
+                        logger.warning(f"Finalize/email skipped for campaign {campaign_id}: {_e}")
         except Exception as _e:
             logger.warning(f"Report update skipped for {to_number}: {_e}", exc_info=True)
 
@@ -747,10 +780,13 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         # Also check disconnection_reason for "voicemail_reached" (when voicemail detection is enabled)
         not_connected_statuses = ['busy', 'no_answer', 'voicemail', 'not_connected', 'user_busy', 'machine']
         
-        # Check if call should be retried: either status is in not_connected list OR disconnection_reason is voicemail_reached
-        should_retry = (call_status in not_connected_statuses or 
-                       mapped_status in not_connected_statuses or 
-                       disconnection_reason == "voicemail_reached")
+        # Disconnection reasons that indicate the call was not picked up
+        not_connected_disconnections = ['voicemail_reached', 'dialed_no_answer']
+
+        # Check if call should be retried: either status is in not_connected list OR disconnection_reason indicates no pickup
+        should_retry = (call_status in not_connected_statuses or
+                       mapped_status in not_connected_statuses or
+                       disconnection_reason in not_connected_disconnections)
         
         if should_retry:
             logger.info("[WEBHOOK] Not connected → checking auto-retry | phone=%s | status=%s | disconnect=%s", to_number, call_status, disconnection_reason)

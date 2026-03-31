@@ -133,17 +133,18 @@ def schedule_auto_retry(phone_number: str, campaign_id: str, call_status: str, c
         
         # Check if prospect should be retried
         # Don't retry if:
-        # 1. User explicitly declined callback (isCallBack = False)
-        # 2. User has an appointment booked
-        # 3. Call was picked up (status = 'picked_up')
+        # 1. User has an appointment booked
+        # 2. Call was picked up (status = 'picked_up')
+        #
+        # NOTE: We do NOT check isCallBack here. isCallBack is for user-requested
+        # callbacks (a separate system). For voicemail/no_answer calls, Retell's
+        # analysis returns call_back_request=false (no human interaction), which
+        # gets written as isCallBack=false. Checking it here would block auto-retry
+        # for every voicemail call.
         if prospect.get("status") == "picked_up":
             logger.info(f"Skipping auto-retry for {phone_number} - call was picked up")
             return
-        
-        if prospect.get("isCallBack") is False:
-            logger.info(f"Skipping auto-retry for {phone_number} - user declined callback")
-            return
-        
+
         appointment = prospect.get("appointment", {})
         if appointment.get("appointmentInterest") is True:
             logger.info(f"Skipping auto-retry for {phone_number} - appointment already booked")
@@ -396,7 +397,11 @@ def get_prospects_for_auto_retry():
         
         candidates = list(collection.find(query))
         
-        # Filter by time - only include prospects whose scheduled time exactly matches current time
+        # Filter by time - include prospects whose scheduled time is at or before
+        # the current time.  Previously this used exact-minute matching (==), which
+        # meant a retry scheduled for 10:00 was silently missed if the scheduler
+        # loop ran at 10:01.  Using >= ensures retries are picked up even if the
+        # scheduler drifts by a few minutes.
         prospects = []
         for p in candidates:
             scheduled_time = p.get("autoRetryScheduledTime")
@@ -409,9 +414,9 @@ def get_prospects_for_auto_retry():
                             scheduled_time_norm = f"0{parts[0]}:{parts[1]}"
                         else:
                             scheduled_time_norm = scheduled_time
-                        
-                        # Only include if current time exactly matches scheduled time
-                        if current_time == scheduled_time_norm:
+
+                        # Include if scheduled time is at or before current time
+                        if current_time >= scheduled_time_norm:
                             prospects.append(p)
                         else:
                             logger.debug(f"Auto-retry not due for {p.get('phoneNumber')} - scheduled at {scheduled_time_norm}, current time {current_time}")

@@ -2,6 +2,7 @@ import os
 import csv
 import tempfile
 import logging
+import threading
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import shutil
@@ -22,6 +23,22 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# ── Per-campaign file lock ──
+# Multiple concurrent webhooks can read/write the same campaign CSV at the same
+# time, corrupting it or causing the completeness check to see stale data.
+# We use one lock per campaign_id so different campaigns don't block each other.
+_campaign_locks: Dict[str, threading.Lock] = {}
+_campaign_locks_meta = threading.Lock()  # protects the dict itself
+
+
+def _get_campaign_lock(campaign_id: str) -> threading.Lock:
+    """Return (or create) a per-campaign threading lock."""
+    with _campaign_locks_meta:
+        if campaign_id not in _campaign_locks:
+            _campaign_locks[campaign_id] = threading.Lock()
+        return _campaign_locks[campaign_id]
 
 
 REPORT_HEADERS = [
@@ -340,11 +357,14 @@ def email_report(campaign_id: str, recipient_emails: List[str], subject: Optiona
 
 
 def cleanup_report(campaign_id: str):
+    """Remove temporary files after email is sent.
+
+    We intentionally keep the CSV so that late-arriving duplicate webhooks
+    can still read it (and see that outcomes are already complete) rather
+    than failing on a missing file.  Only the temp XLSX is removed.
+    """
     try:
-        csv_path = _csv_path(campaign_id)
         xlsx_out = _xlsx_path(campaign_id)
-        if os.path.exists(csv_path):
-            os.remove(csv_path)
         if os.path.exists(xlsx_out):
             os.remove(xlsx_out)
     except Exception as e:
@@ -353,28 +373,18 @@ def cleanup_report(campaign_id: str):
 
 def finalize_and_send(campaign_id: str, recipient_emails: List[str], subject: Optional[str] = None):
     """
-    Convert the CSV to XLSX, save a local copy, email it to all recipients, then clean up temp files.
+    Convert the CSV to XLSX, save a persistent local copy, email it to all
+    recipients, then clean up temp files.  The local copy is saved *before*
+    emailing so it is preserved even if SMTP fails.
     """
-    # Ensure XLSX exists and capture its path
-    xlsx_path = convert_csv_to_xlsx(campaign_id)
-
-    # Save a persistent local copy of the XLSX for inspection
-    try:
-        if xlsx_path and os.path.exists(xlsx_path):
-            # Project root (one level up from this services/ directory)
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            reports_dir = os.path.join(base_dir, "reports")
-            os.makedirs(reports_dir, exist_ok=True)
-
-            dest_path = os.path.join(reports_dir, f"{campaign_id}.xlsx")
-            shutil.copy2(xlsx_path, dest_path)
-            logger.info(f"Saved local copy of campaign report for {campaign_id} at {dest_path}")
-    except Exception as e:
-        logger.warning(f"Failed to save local XLSX copy for campaign {campaign_id}: {str(e)}")
+    # Save the final local copy first (converts CSV → XLSX internally)
+    local_path = save_report_locally(campaign_id)
+    if local_path:
+        logger.info(f"Final local report saved for campaign {campaign_id} at {local_path}")
 
     # Email the report to all recipients
     email_report(campaign_id, recipient_emails, subject)
-    # Remove temp files from the OS temp directory
+    # Remove temp files from the OS temp directory (keeps CSV + local copy)
     cleanup_report(campaign_id)
 
 
