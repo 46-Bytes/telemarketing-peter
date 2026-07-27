@@ -89,3 +89,22 @@ def update_user(user_id: str, user_data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating user: {str(e)}")
 
+def delete_user(user_id: str):
+    try:
+        users_collection = db_get_users_collection()
+
+        user = users_collection.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        users_collection.delete_one({"_id": ObjectId(user_id)})
+
+        return {
+            "status": "success",
+            "message": "User deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting user: {str(e)}")
+

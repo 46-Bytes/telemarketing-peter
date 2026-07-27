@@ -37,6 +37,9 @@ async def book_appointment(subject: str, request: Request):
     phone_number = data["args"].get("phoneNumber")  # Get phone number if provided
     campaign_id = data["args"].get("campaign_id")  # Get campaign ID if provided
     email = data["args"].get("email")
+    # Live transcript so far (booking happens mid-call, before the post-call
+    # webhook persists transcript/summary to the DB). Used as fallback context.
+    live_transcript = data.get("call", {}).get("transcript")
 
     print("date", date)
     print("time", time)
@@ -52,7 +55,8 @@ async def book_appointment(subject: str, request: Request):
             subject=subject,
             meeting_type=subject,
             campaign_id=campaign_id,
-            userEmail=email
+            userEmail=email,
+            live_transcript=live_transcript
         )
         logger.info(f"Response data: {response_data}")
         if(response_data.get("error")):

@@ -231,7 +231,7 @@ def is_valid_email(email):
     # Improved regex for email validation
     return re.match(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$", email) is not None
 
-async def schedule_appointment(date, time, phone_number=None, subject: str = None, meeting_type="default", campaign_id=None, userEmail: str = None):
+async def schedule_appointment(date, time, phone_number=None, subject: str = None, meeting_type="default", campaign_id=None, userEmail: str = None, live_transcript: str = None):
     """
     Check availability and schedule if free.
     Args:
@@ -349,6 +349,12 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
     except Exception as e:
         logger.warning(f"[APPOINTMENT] Could not load latest call context for {phone_number}, campaign {campaign_id}: {e}")
 
+    # Booking happens mid-call, so the current call's transcript/summary aren't in
+    # the DB yet. Fall back to the live transcript from the booking request so the
+    # broker still gets conversation context (summary is post-call only).
+    if not latest_transcript and live_transcript:
+        latest_transcript = live_transcript
+
     # Construct appointment description
     description = (
         f"This is a {meeting_type} meeting scheduled for {user_name} "
@@ -409,6 +415,7 @@ async def schedule_appointment(date, time, phone_number=None, subject: str = Non
             prospect_name, prospect_business_name, prospect_phone_number,
             prospect_campaign_name, prospect_email, userEmail,
             latest_summary, latest_transcript, phone_number, campaign_id,
+            response.get("meetingLink", ""),
         ),
         daemon=False,
     ).start()
@@ -422,6 +429,7 @@ def _send_appointment_emails_and_update(
     prospect_name, prospect_business_name, prospect_phone_number,
     prospect_campaign_name, prospect_email, userEmail,
     latest_summary, latest_transcript, phone_number, campaign_id,
+    meeting_link="",
 ):
     """Send confirmation emails to admins/broker and update prospect record. Runs in a background thread."""
     try:
@@ -559,7 +567,7 @@ def _send_appointment_emails_and_update(
                 campaign_id=campaign_id,
                 appointment_interest=True,
                 appointment_date_time=start_time,
-                meeting_link="",
+                meeting_link=meeting_link,
                 appointment_type=appointment_type,
             )
             logger.info(f"[BG-EMAIL] Prospect appointment updated — phone={phone_number}, campaign={campaign_id}")

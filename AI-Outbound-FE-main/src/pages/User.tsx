@@ -37,6 +37,8 @@ const User: React.FC = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   useEffect(() => {
     const fetchUsers = async () => {
@@ -81,6 +83,23 @@ const User: React.FC = () => {
       role: user.role || 'user'
     });
     setIsUserModalOpen(true);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    try {
+      setIsDeleting(true);
+      setError(null);
+      await userApi.deleteUser(userToDelete.id);
+      setUsers(prev => prev.filter(u => u.id !== userToDelete.id));
+      setUserToDelete(null);
+      setUserCreationSuccess('User deleted successfully!');
+      setTimeout(() => setUserCreationSuccess(null), 3000);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to delete user');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleUserSubmit = async (e: React.FormEvent) => {
@@ -261,12 +280,22 @@ const User: React.FC = () => {
                     </span>
                   </div>
 
-                  <div className="mt-3 pt-3 border-t border-gray-100">
+                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2">
                     <button
                       onClick={() => handleEditUser(user)}
-                      className="w-full py-1.5 px-3 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded transition-colors duration-200"
+                      className="flex-1 py-1.5 px-3 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded transition-colors duration-200"
                     >
                       Edit User
+                    </button>
+                    <button
+                      onClick={() => setUserToDelete(user)}
+                      aria-label={`Delete ${user.name}`}
+                      title="Delete user"
+                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-red-400"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
                     </button>
                   </div>
                 </div>
@@ -524,6 +553,64 @@ const User: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {userToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[150] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md my-4 mx-auto flex flex-col">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-800">Delete User</h3>
+              <button
+                type="button"
+                onClick={() => !isDeleting && setUserToDelete(null)}
+                className="text-gray-500 hover:text-gray-700 focus:outline-none"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6">
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-full bg-red-100">
+                  <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-700">
+                    Are you sure you want to delete <span className="font-semibold">{userToDelete.name}</span>?
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">This action cannot be undone.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-lg transition-colors duration-200 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteUser}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white text-sm font-medium rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDeleting ? 'Deleting...' : 'Delete User'}
+              </button>
             </div>
           </div>
         </div>

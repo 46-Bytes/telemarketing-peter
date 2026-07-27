@@ -427,7 +427,9 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
             "appointmentInterest": new_appointment_interest if (existing_appointment.get('appointmentInterest') is None or existing_appointment.get('appointmentInterest') is False) else existing_appointment.get('appointmentInterest'),
             "appointmentDateTime": new_appointment_datetime if (existing_appointment.get('appointmentInterest') is None or existing_appointment.get('appointmentInterest') is False) else existing_appointment.get('appointmentDateTime'),
             "appointmentType": appointment_type if (existing_appointment.get('appointmentType') is None) else existing_appointment.get('appointmentType'),
-            "meetingLink": existing_appointment.get('meetingLink') if (existing_appointment.get('meetingLink') is not None) else None
+            "meetingLink": existing_appointment.get('meetingLink') if (existing_appointment.get('meetingLink') is not None) else None,
+            # Preserve a real booking made mid-call; this webhook only reflects interest.
+            "isBooked": existing_appointment.get('isBooked', False)
         }
 
         # Handle callback date
@@ -960,7 +962,8 @@ def update_prospect_appointment(phone_number: str, appointment_interest: bool, a
             "appointmentInterest": appointment_interest,
             "appointmentDateTime": appointment_date_time,
             "meetingLink": meeting_link,  # Add the webLink from Microsoft
-            "appointmentType": appointment_type  # Add the appointment type
+            "appointmentType": appointment_type,  # Add the appointment type
+            "isBooked": True,  # Reached only when a calendar event was actually created
         }
 
         print("appointment_info in final call:", appointment_info)

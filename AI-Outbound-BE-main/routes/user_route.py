@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
-from services.user_service import get_users, update_user
+from services.user_service import get_users, update_user, delete_user
 from models.user import User
 from pydantic import BaseModel
 from typing import Optional
@@ -28,5 +28,14 @@ async def update_user_route(user_id: str, user_data: UserUpdate):
     try:
         result = update_user(user_id, user_data.dict(exclude_unset=True))
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/delete_user/{user_id}")
+async def delete_user_route(user_id: str):
+    try:
+        return delete_user(user_id)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

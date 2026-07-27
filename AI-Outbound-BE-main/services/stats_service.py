@@ -50,7 +50,7 @@ def get_connected_calls(userId: str):
     return result["totalConnectedCalls"]
 
 def get_appointments_booked(userId: str):
-    """Calculate the total number of appointments booked based on appointmentInterest."""
+    """Calculate the total number of appointments actually booked (calendar event created)."""
     collection = get_prospects_collection()
     users_collection = get_users_collection()
 
@@ -58,8 +58,8 @@ def get_appointments_booked(userId: str):
     user = users_collection.find_one({"name": userId})
     is_super_admin = user and user.get("role") == "super_admin"
 
-    # Build match stage
-    match_stage = {"appointment.appointmentInterest": True}
+    # Build match stage — count actual bookings (calendar event created), not mere interest
+    match_stage = {"appointment.isBooked": True}
 
     # Only add ownerName if not outbound and not a super_admin
     if not is_super_admin:
@@ -169,8 +169,8 @@ def get_matrix_details(id: str, userName: str):
         projection["calls"] = 1
         
     elif id == "appointments":
-        # Appointments booked
-        base_query["appointment.appointmentInterest"] = True
+        # Appointments booked (actual calendar event created, not mere interest)
+        base_query["appointment.isBooked"] = True
         projection["appointment"] = 1
         
     elif id == "callbacks":
@@ -458,10 +458,10 @@ def get_monthly_stats(month: int, year: int):
     ]
     connected_calls = next(collection.aggregate(connected_calls_pipeline), {"total": 0}).get("total", 0)
 
-    # Get appointments booked in the month
+    # Get appointments booked in the month (actual calendar event created, not mere interest)
     appointments_match = {
         **date_match,
-        "appointment.appointmentInterest": True
+        "appointment.isBooked": True
     }
     appointments_booked = collection.count_documents(appointments_match)
 

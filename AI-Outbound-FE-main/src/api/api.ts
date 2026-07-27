@@ -196,6 +196,18 @@ export const userApi = {
       }
       throw new Error("Failed to update user");
     }
+  },
+  deleteUser: async (userId: string) => {
+    try {
+      const response = await Axios.delete(`/users/delete_user/${userId}`);
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        console.error("Delete user error:", error.response?.data);
+        throw new Error(error.response?.data?.detail || error.response?.data?.message || "Failed to delete user");
+      }
+      throw new Error("Failed to delete user");
+    }
   }
 };
 
