@@ -34,6 +34,32 @@ def normalize_phone_number(phone_number: str) -> str:
         return '+' + cleaned
     return cleaned
 
+def phone_number_variants(phone_number: str) -> List[str]:
+    """
+    Return every stored form of a phone number (as given, cleaned, with and without '+').
+
+    Retell reports numbers in E.164 (+61XXXXXXXXX) while older prospect records may be
+    stored without the '+', so DB lookups on phoneNumber should go through find_prospect_by_phone.
+    """
+    if not phone_number:
+        return [phone_number]
+    cleaned = re.sub(r'[^\d+]', '', phone_number.strip())
+    digits = cleaned.lstrip('+')
+    return list(dict.fromkeys([phone_number, cleaned, digits, '+' + digits]))
+
+def find_prospect_by_phone(collection, phone_number: str, campaign_id: str = None):
+    """
+    Find a prospect by phone number and campaign, preferring the exact stored number and
+    falling back to the same number with or without the leading '+'.
+
+    The exact match goes first so that, if the same number exists in both formats, the
+    record that was actually called is the one returned.
+    """
+    return (
+        collection.find_one({"phoneNumber": phone_number, "campaignId": campaign_id})
+        or collection.find_one({"phoneNumber": {"$in": phone_number_variants(phone_number)}, "campaignId": campaign_id})
+    )
+
 def is_valid_number(phone_number: str) -> bool:
     """
     Validate Australian and Pakistani phone number format using regex.
@@ -165,7 +191,7 @@ async def create_phone_call(prospects, source="unknown"):
                 previous_summary = None
                 is_callback_flag = False
                 try:
-                    db_prospect = collection.find_one({"phoneNumber": prospect.phoneNumber, "campaignId": getattr(prospect, "campaignId", None)})
+                    db_prospect = find_prospect_by_phone(collection, prospect.phoneNumber, getattr(prospect, "campaignId", None))
                     is_callback_flag = getattr(prospect, "isCallBack", None)
                     if db_prospect:
                         if is_callback_flag is None:
@@ -225,6 +251,11 @@ async def create_phone_call(prospects, source="unknown"):
                 
                 # Update database for each prospect in this batch
                 for prospect in batch_prospects:
+                    stored_prospect = find_prospect_by_phone(collection, prospect.phoneNumber, prospect.campaignId)
+                    if not stored_prospect:
+                        logger.warning("[CALL] No stored prospect found to update | phone=%s | campaign_id=%s", prospect.phoneNumber, prospect.campaignId)
+                        continue
+
                     # Create audit log entry for call initiation
                     audit_log = {
                         "actionType": "Batch Call Initiated",
@@ -238,7 +269,7 @@ async def create_phone_call(prospects, source="unknown"):
 
                     # Update the prospect in the database
                     collection.update_one(
-                        {"phoneNumber": prospect.phoneNumber, "campaignId": prospect.campaignId},
+                        {"_id": stored_prospect["_id"]},
                         {
                             "$set": {"status": "contacted"},
                             "$inc": {"retryCount": 1},
@@ -292,11 +323,7 @@ def update_batch_call_status(batch_id: str, call_results: List[Dict[str, Any]]):
                 continue
 
             # Build list of phone variants to try (with and without +)
-            phone_variants = [phone_number]
-            if phone_number.startswith('+'):
-                phone_variants.append(phone_number[1:])  # without +
-            else:
-                phone_variants.append('+' + phone_number)  # with +
+            phone_variants = phone_number_variants(phone_number)
             
             # Extract all call details from webhook
             duration_ms = call_result.get('duration_ms', 0)

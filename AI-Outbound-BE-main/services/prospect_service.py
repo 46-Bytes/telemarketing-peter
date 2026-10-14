@@ -10,7 +10,7 @@ import random
 from models.token_model import TokenStore
 from bson import ObjectId
 from utils.timezone import get_brisbane_now
-from services.call_initiation_service import normalize_phone_number
+from services.call_initiation_service import normalize_phone_number, find_prospect_by_phone
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -301,11 +301,6 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         campaign_id = call_data.get('retell_llm_dynamic_variables', {}).get('campaign_id')
         duration_s = round(call_data.get('duration_ms', 0) / 1000, 1)
 
-        # ── Deduplication: skip if we already processed this call_id ──
-        if call_id and _mark_call_processed(call_id):
-            logger.info("[WEBHOOK] Duplicate call_analyzed skipped | call_id=%s | phone=%s", call_id, to_number)
-            return {"message": "Duplicate webhook skipped"}
-
         logger.info("[WEBHOOK] Processing | phone=%s | call_id=%s | status=%s | mapped=%s | disconnect=%s | duration=%ss | campaign=%s",
                      to_number, call_id, call_status, mapped_status, disconnection_reason, duration_s, campaign_id)
 
@@ -320,15 +315,22 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
         
         # For batch calls, we need to find the prospect by phone number and campaign ID
         # and look for a call entry with batchId (not callId)
-        existing_prospect = collection.find_one({
-            "phoneNumber": to_number,
-            "campaignId": campaign_id
-        })
-        
+        existing_prospect = find_prospect_by_phone(collection, to_number, campaign_id)
+
         if not existing_prospect:
             logger.warning(f"No prospect found for phone {to_number} in campaign {campaign_id}")
             return {"message": "Prospect not found"}
-        
+
+        # Use the number exactly as stored (it may differ from Retell's E.164 form by the '+')
+        # so every update below matches the same document.
+        to_number = existing_prospect.get("phoneNumber", to_number)
+
+        # ── Deduplication: skip if we already processed this call_id ──
+        # Done after the prospect lookup so an unmatched webhook does not mark the call as processed.
+        if call_id and _mark_call_processed(call_id):
+            logger.info("[WEBHOOK] Duplicate call_analyzed skipped | call_id=%s | phone=%s", call_id, to_number)
+            return {"message": "Duplicate webhook skipped"}
+
         # Check if this is a batch call by looking for the most recent batch call entry
         batch_call_entry = None
         calls = existing_prospect.get('calls', [])
@@ -831,7 +833,7 @@ async def update_prospect_call_info(webhook_data: Dict[Any, Any]):
 
 def get_prospect_details_by_phone_number_and_campaign_id(phone_number: str, campaign_id: str = None):
     collection = get_prospects_collection()
-    prospect = collection.find_one({"phoneNumber": phone_number, "campaignId": campaign_id})
+    prospect = find_prospect_by_phone(collection, phone_number, campaign_id)
     if prospect:
         prospect["_id"] = str(prospect["_id"])
         return prospect
@@ -850,7 +852,7 @@ def get_latest_call_context_by_phone_and_campaign(phone_number: str, campaign_id
     """
     try:
         collection = get_prospects_collection()
-        prospect = collection.find_one({"phoneNumber": phone_number, "campaignId": campaign_id})
+        prospect = find_prospect_by_phone(collection, phone_number, campaign_id)
         if not prospect:
             return {"transcript": None, "callSummary": None}
 
@@ -929,8 +931,8 @@ def get_prospect_by_phone_number(phone_number, campaign_id=None):
     collection = get_prospects_collection()
     
     # Find the prospect by phone number
-    prospect = collection.find_one({"phoneNumber": phone_number, "campaignId": campaign_id})
-    
+    prospect = find_prospect_by_phone(collection, phone_number, campaign_id)
+
     return prospect
 
 def update_prospect_appointment(phone_number: str, appointment_interest: bool, appointment_date_time: str = None, meeting_link: str = None, campaign_id: str = None, appointment_type: str = None):
@@ -953,7 +955,7 @@ def update_prospect_appointment(phone_number: str, appointment_interest: bool, a
         collection = get_prospects_collection()
         
         # First check if the prospect exists
-        existing_prospect = collection.find_one({"phoneNumber": phone_number, "campaignId": campaign_id})
+        existing_prospect = find_prospect_by_phone(collection, phone_number, campaign_id)
         if not existing_prospect:
             return {"status": "error", "message": f"Prospect with phone number {phone_number} not found"}
         
@@ -970,7 +972,7 @@ def update_prospect_appointment(phone_number: str, appointment_interest: bool, a
         
         # Update prospect
         update_result = collection.update_one(
-            {"phoneNumber": phone_number, "campaignId": campaign_id},
+            {"_id": existing_prospect["_id"]},
             {
                 "$set": {
                     "appointment": appointment_info,
@@ -995,7 +997,7 @@ def update_prospect_appointment(phone_number: str, appointment_interest: bool, a
         
         # Add the audit log entry
         collection.update_one(
-            {"phoneNumber": phone_number, "campaignId": campaign_id},
+            {"_id": existing_prospect["_id"]},
             {"$push": {"auditLogs": audit_log}}
         )
         
